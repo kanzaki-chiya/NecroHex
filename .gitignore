@@ -15,3 +15,6 @@ coverage/
 # Do not add .kiro/ here. The hackathon rules require it in the repository.
 # Full Freedoom releases are cached locally for extra tests and are not committed.
 packages/adapter-wad/fixtures/cache/
+
+# Local export output.
+out/
