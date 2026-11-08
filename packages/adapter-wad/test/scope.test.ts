@@ -86,6 +86,72 @@ describe("地图作用域", () => {
     expect(wad.maps[0]!.dataIndices).toEqual([1]);
   });
 
+  it("普通 Doom 地图的格式是 doom", () => {
+    const wad = WadFile.parse(buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: empty }, ...dataLumps] }));
+    expect(wad.maps.map((m) => [m.name, m.format])).toEqual([["MAP01", "doom"]]);
+  });
+
+  it("带 BEHAVIOR 的地图是 hexen，BEHAVIOR 在作用域内", () => {
+    const wad = WadFile.parse(
+      buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: empty }, { name: "THINGS", data: d(2) }, { name: "LINEDEFS", data: d(2) }, { name: "BEHAVIOR", data: d(4) }] }),
+    );
+    expect(wad.maps).toHaveLength(1);
+    expect(wad.maps[0]!.format).toBe("hexen");
+    expect(wad.maps[0]!.dataIndices).toEqual([1, 2, 3]);
+    expect(wad.mapLump(wad.maps[0]!, "BEHAVIOR")!.index).toBe(3);
+  });
+
+  it("只带 SCRIPTS 不带 BEHAVIOR 的地图仍是 doom，SCRIPTS 在作用域内", () => {
+    const wad = WadFile.parse(
+      buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: empty }, { name: "THINGS", data: d(2) }, { name: "SCRIPTS", data: d(4) }] }),
+    );
+    expect(wad.maps[0]!.format).toBe("doom");
+    expect(wad.maps[0]!.dataIndices).toEqual([1, 2]);
+  });
+
+  it("MAP01 之后只有 BEHAVIOR 不成图", () => {
+    const wad = WadFile.parse(buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: empty }, { name: "BEHAVIOR", data: d(4) }] }));
+    expect(wad.maps).toEqual([]);
+  });
+
+  it("UDMF：TEXTMAP 之前的任意名称 Lump 是标记，作用域到 ENDMAP 为止且包含它", () => {
+    const wad = WadFile.parse(
+      buildWad({
+        kind: "PWAD",
+        lumps: [
+          { name: "MYMAP", data: empty },
+          { name: "TEXTMAP", data: d(8) },
+          { name: "ZNODES", data: d(3) },
+          { name: "REJECT", data: d(3) },
+          { name: "ENDMAP", data: empty },
+          { name: "THINGS", data: d(10) },
+        ],
+      }),
+    );
+    expect(wad.maps).toHaveLength(1);
+    const m = wad.maps[0]!;
+    expect([m.name, m.format, m.markerIndex]).toEqual(["MYMAP", "udmf", 0]);
+    expect(m.dataIndices).toEqual([1, 2, 3, 4]); // 不含 ENDMAP 之后的 THINGS
+    expect(Object.keys(m.lumps).sort()).toEqual(["ENDMAP", "REJECT", "TEXTMAP", "ZNODES"]);
+  });
+
+  it("UDMF：标记也可以是 MAPxx 名称，不要求标记大小为 0", () => {
+    const wad = WadFile.parse(
+      buildWad({ kind: "PWAD", lumps: [{ name: "MAP07", data: d(3) }, { name: "TEXTMAP", data: d(8) }, { name: "ENDMAP", data: empty }] }),
+    );
+    expect(wad.maps.map((m) => [m.name, m.format, m.dataIndices])).toEqual([["MAP07", "udmf", [1, 2]]]);
+  });
+
+  it("UDMF：缺少 ENDMAP 仍识别为 udmf，在第一个非成员处结束", () => {
+    const wad = WadFile.parse(
+      buildWad({
+        kind: "PWAD",
+        lumps: [{ name: "MYMAP", data: empty }, { name: "TEXTMAP", data: d(8) }, { name: "ZNODES", data: d(3) }, { name: "XOTHER", data: d(1) }, { name: "REJECT", data: d(1) }],
+      }),
+    );
+    expect(wad.maps.map((m) => [m.format, m.dataIndices])).toEqual([["udmf", [1, 2]]]);
+  });
+
   it("支持 ExMy 和 MAPxx 两种命名", () => {
     const wad = WadFile.parse(
       buildWad({ kind: "IWAD", lumps: [{ name: "E2M5", data: empty }, { name: "THINGS", data: d(1) }, { name: "MAP31", data: empty }, { name: "THINGS", data: d(1) }] }),

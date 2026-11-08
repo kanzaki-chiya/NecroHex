@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { generateRecordsSource, OUTPUT_PATH, SPEC_PATH } from "../scripts/generate-records.ts";
 import { buildWad, RECORD_LAYOUTS, WadFile, type RecordName } from "../src/index.ts";
 
-function sectorWad(): { wad: WadFile; lump: number; raw: Uint8Array } {
+function sectorBytes(): Uint8Array {
   const raw = new Uint8Array(26 * 2);
   const v = new DataView(raw.buffer);
   v.setInt16(0, -8, true); // floorheight
@@ -13,9 +13,23 @@ function sectorWad(): { wad: WadFile; lump: number; raw: Uint8Array } {
   v.setInt16(20, 160, true); // lightlevel
   v.setInt16(22, 9, true); // special
   v.setInt16(24, 7, true); // tag
-  const b = buildWad({ kind: "PWAD", lumps: [{ name: "SECTORS", data: raw }] });
-  const wad = WadFile.parse(b);
+  return raw;
+}
+
+/** 裸 SECTORS，没有地图标记：读取接口可用，setField 会被拒绝（OUTSIDE_MAP_SCOPE）。 */
+function sectorWad(): { wad: WadFile; lump: number; raw: Uint8Array } {
+  const raw = sectorBytes();
+  const wad = WadFile.parse(buildWad({ kind: "PWAD", lumps: [{ name: "SECTORS", data: raw }] }));
   return { wad, lump: 0, raw };
+}
+
+/** SECTORS 放进 MAP01 的地图作用域；Lump 下标从目录里取，不依赖固定下标。 */
+function mappedSectorWad(): { wad: WadFile; lump: number; raw: Uint8Array } {
+  const raw = sectorBytes();
+  const wad = WadFile.parse(
+    buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: new Uint8Array(0) }, { name: "SECTORS", data: raw }] }),
+  );
+  return { wad, lump: wad.mapLump(wad.findMap("MAP01")!, "SECTORS")!.index, raw };
 }
 
 describe("生成的记录层", () => {
@@ -78,13 +92,13 @@ describe("生成的记录层", () => {
 
 describe("字段写入", () => {
   it("写入后读取到新值，字节只在字段区间变化，基础缓冲不变", () => {
-    const { wad, lump, raw } = sectorWad();
-    const before = wad.baseBuffer.slice();
+    const { wad, lump, raw } = mappedSectorWad();
+    const before = wad.original();
     const written = wad.setField(lump, "Sector", 1, "floorpic", "BLOOD1");
     expect(written).toEqual(wad.fieldSpan(lump, "Sector", 1, "floorpic"));
     expect(wad.readRecord(lump, "Sector", 1).floorpic).toBe("BLOOD1");
-    expect(wad.readRecord(lump, "Sector", 0)).toEqual(sectorWad().wad.readRecord(lump, "Sector", 0));
-    expect(wad.baseBuffer).toEqual(before);
+    expect(wad.readRecord(lump, "Sector", 0)).toEqual(mappedSectorWad().wad.readRecord(lump, "Sector", 0));
+    expect(wad.original()).toEqual(before);
     expect(wad.dirtySpans()).toEqual([written]);
     const out = wad.serialize();
     expect([...out.slice(written.start, written.end)]).toEqual([...Buffer.from("BLOOD1\0\0")]);
@@ -92,7 +106,7 @@ describe("字段写入", () => {
   });
 
   it("新值越界或类型错误时抛出，且不留下痕迹", () => {
-    const { wad, lump } = sectorWad();
+    const { wad, lump } = mappedSectorWad();
     expect(() => wad.setField(lump, "Sector", 0, "lightlevel", 40000)).toThrow(RangeError);
     expect(() => wad.setField(lump, "Sector", 0, "lightlevel", 1.5)).toThrow(TypeError);
     expect(() => wad.setField(lump, "Sector", 0, "floorpic", "TOOLONGNAME")).toThrow(RangeError);

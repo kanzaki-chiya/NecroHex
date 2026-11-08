@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MAP_DATA_LUMPS, WadFile } from "../src/index.ts";
-import { changedIndices, equalBytes, insideAny } from "./helpers.ts";
+import { buildWad, MAP_DATA_LUMPS, WadFile, WadRecordError } from "../src/index.ts";
+import { changedIndices, equalBytes, insideAny, legacyMaps, mapsWithoutFormat, withFilepos } from "./helpers.ts";
 
 const fixtures = resolve(import.meta.dirname, "../fixtures");
 const subset = resolve(fixtures, "freedoom/freedoom2-map01-02.wad");
@@ -27,8 +27,14 @@ describe("Freedoom 夹具（PWAD 子集）", () => {
     for (const m of wad.maps) {
       expect(Object.keys(m.lumps).sort()).toEqual([...MAP_DATA_LUMPS].sort());
       expect(wad.lumps[m.markerIndex]!.isMarker).toBe(true);
+      expect(m.format).toBe("doom");
     }
     expect(wad.regions.gaps).toEqual([]);
+  });
+
+  it("地图格式识别没有改变夹具的作用域：format 为 doom，其余与旧规则逐项相同", () => {
+    expect(wad.maps.every((m) => m.format === "doom")).toBe(true);
+    expect(mapsWithoutFormat(wad)).toEqual(legacyMaps(wad));
   });
 
   it("MAP01 的记录可读且彼此一致", () => {
@@ -50,6 +56,49 @@ describe("Freedoom 夹具（PWAD 子集）", () => {
     for (const [name, size] of [["SECTORS", 26], ["THINGS", 10], ["LINEDEFS", 14], ["SIDEDEFS", 30], ["VERTEXES", 4]] as const) {
       expect(wad.mapLump(map, name)!.size % size).toBe(0);
     }
+  });
+
+  it("MAP01 的 SECTORS 目录项指向文件头时，setField 被拒绝且不留痕迹（SECTORS 仍在地图作用域内）", () => {
+    const sectorsIndex = wad.mapLump(wad.findMap("MAP01")!, "SECTORS")!.index;
+    const broken = withFilepos(bytes, sectorsIndex, 0);
+    const w = WadFile.parse(broken);
+    expect(w.findMap("MAP01")!.dataIndices).toContain(sectorsIndex);
+    expect(() => w.setField(sectorsIndex, "Sector", 0, "floorheight", 0x4441)).toThrow(WadRecordError);
+    expect(w.dirtySpans()).toEqual([]);
+    expect(equalBytes(w.serialize(), broken)).toBe(true);
+  });
+
+  it("在 MAP01 的数据 Lump 之后追加 BEHAVIOR 得到 Hexen 变体：MAP01 的记录接口被拒绝，MAP02 不受影响", () => {
+    const source = wad.original();
+    const lumps = wad.lumps.map((l) => ({
+      name: l.name,
+      nameBytes: source.slice(l.nameSpan.start, l.nameSpan.end),
+      data: l.dataSpan ? source.slice(l.dataSpan.start, l.dataSpan.end) : new Uint8Array(0),
+    }));
+    const map01 = wad.findMap("MAP01")!;
+    const lastData = map01.dataIndices[map01.dataIndices.length - 1]!;
+    lumps.splice(lastData + 1, 0, { name: "BEHAVIOR", nameBytes: Uint8Array.from([...Buffer.from("BEHAVIOR")]), data: new Uint8Array(8) });
+    const hexenBytes = buildWad({ kind: "PWAD", lumps });
+    const hexen = WadFile.parse(hexenBytes);
+    expect(hexen.findMap("MAP01")!.format).toBe("hexen");
+    expect(hexen.findMap("MAP02")!.format).toBe("doom");
+    const things = hexen.mapLump(hexen.findMap("MAP01")!, "THINGS")!.index;
+    const code = (call: () => unknown): string | undefined => {
+      try {
+        call();
+      } catch (e) {
+        return e instanceof WadRecordError ? e.code : "OTHER";
+      }
+      return undefined;
+    };
+    expect(code(() => hexen.recordCount(things, "Thing"))).toBe("UNSUPPORTED_MAP_FORMAT");
+    expect(code(() => hexen.readRecords(things, "Thing"))).toBe("UNSUPPORTED_MAP_FORMAT");
+    expect(code(() => hexen.setField(things, "Thing", 0, "x", 1))).toBe("UNSUPPORTED_MAP_FORMAT");
+    expect(hexen.dirtySpans()).toEqual([]);
+    expect(equalBytes(hexen.serialize(), hexenBytes)).toBe(true);
+    // MAP02 仍可读
+    const things2 = hexen.mapLump(hexen.findMap("MAP02")!, "THINGS")!.index;
+    expect(hexen.recordCount(things2, "Thing")).toBe(wad.recordCount(wad.mapLump(wad.findMap("MAP02")!, "THINGS")!.index, "Thing"));
   });
 
   it("I-3 改一个扇区字段，字节只在该字段区间变化", () => {
@@ -91,6 +140,8 @@ describe.each(cached)("完整 Freedoom IWAD %s", (path) => {
       expect(wad.mapLump(m, "SECTORS")).toBeDefined();
       const sectors = wad.mapLump(m, "SECTORS")!;
       expect(sectors.size % 26).toBe(0);
+      expect(m.format).toBe("doom");
     }
+    expect(mapsWithoutFormat(wad)).toEqual(legacyMaps(wad));
   });
 });

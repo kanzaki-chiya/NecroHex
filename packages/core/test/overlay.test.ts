@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { ByteOverlay, complementSpans, mergeSpans } from "../src/index.ts";
+import { complementSpans, mergeSpans } from "../src/index.ts";
+import { ByteOverlay } from "../src/internal.ts";
 
 describe("ByteOverlay", () => {
   it("materialize 只改变写入的区间，基础缓冲不变", () => {

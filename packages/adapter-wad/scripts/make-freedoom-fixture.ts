@@ -13,12 +13,14 @@ if (!input || !output) {
 }
 
 const wad = WadFile.parse(new Uint8Array(readFileSync(input)));
+// original() 每次调用都复制整个文件，所以在循环外取一次再切片
+const source = wad.original();
 const lumps: LumpInput[] = [];
 
 function take(index: number): void {
   const l = wad.lumps[index]!;
-  const nameBytes = wad.baseBuffer.slice(l.nameSpan.start, l.nameSpan.end);
-  const data = l.dataSpan ? wad.baseBuffer.slice(l.dataSpan.start, l.dataSpan.end) : new Uint8Array(0);
+  const nameBytes = source.slice(l.nameSpan.start, l.nameSpan.end);
+  const data = l.dataSpan ? source.slice(l.dataSpan.start, l.dataSpan.end) : new Uint8Array(0);
   lumps.push({ name: l.name, nameBytes, data });
 }
 
