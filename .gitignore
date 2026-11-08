@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.vite/
+*.log
+.env
+.env.*
+!.env.example
+
+# Never commit commercial game data. Only license-checked fixtures are allowed.
+*.wad
+*.WAD
+!packages/adapter-wad/fixtures/**/*.wad
+
+# Do not add .kiro/ here. The hackathon rules require it in the repository.
+# Full Freedoom releases are cached locally for extra tests and are not committed.
+packages/adapter-wad/fixtures/cache/

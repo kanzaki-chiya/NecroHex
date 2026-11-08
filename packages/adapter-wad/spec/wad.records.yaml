@@ -1,0 +1,60 @@
+# WAD 记录布局。所有整数为小端。
+# 字段按声明顺序紧密排列，生成器会校验字段总长等于 size。
+# 修改后运行：pnpm --filter @necrohex/adapter-wad generate
+#
+# 类型：
+#   int16 / uint16  16 位整数
+#   name8           8 字节定长名称，NUL 填充，不保证有 NUL 结尾
+# count 省略表示单个值；count: N 表示 N 个连续值，读出为数组。
+
+records:
+  Sector:
+    lump: SECTORS
+    size: 26
+    fields:
+      - { name: floorheight, type: int16 }
+      - { name: ceilingheight, type: int16 }
+      - { name: floorpic, type: name8 }
+      - { name: ceilingpic, type: name8 }
+      - { name: lightlevel, type: int16 }
+      - { name: special, type: int16 }
+      - { name: tag, type: int16 }
+
+  Thing:
+    lump: THINGS
+    size: 10
+    fields:
+      - { name: x, type: int16 }
+      - { name: y, type: int16 }
+      - { name: angle, type: int16 }
+      - { name: type, type: int16 }
+      - { name: flags, type: uint16 }
+
+  Linedef:
+    lump: LINEDEFS
+    size: 14
+    fields:
+      - { name: v1, type: uint16 }
+      - { name: v2, type: uint16 }
+      - { name: flags, type: uint16 }
+      - { name: special, type: int16 }
+      - { name: tag, type: int16 }
+      - { name: sidenum, type: int16, count: 2 }
+
+  Sidedef:
+    lump: SIDEDEFS
+    size: 30
+    fields:
+      - { name: textureoffset, type: int16 }
+      - { name: rowoffset, type: int16 }
+      - { name: toptexture, type: name8 }
+      - { name: bottomtexture, type: name8 }
+      - { name: midtexture, type: name8 }
+      - { name: sector, type: int16 }
+
+  Vertex:
+    lump: VERTEXES
+    size: 4
+    fields:
+      - { name: x, type: int16 }
+      - { name: y, type: int16 }
