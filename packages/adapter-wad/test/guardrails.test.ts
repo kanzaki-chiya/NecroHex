@@ -288,8 +288,8 @@ describe("Freedoom 夹具", () => {
     expect(r.issues).toEqual([]);
     expect(r.warnings).toEqual([]);
     expect(r.checks.every((c) => c.status === "passed")).toBe(true);
-    // MAP01 玩家出生点所在的 #0 扇区改为慢速频闪；MAP02 #0 的相邻扇区亮度与它相同，频闪暗相位会降到 0，所以不改
-    expect(r.changes).toContainEqual(expect.objectContaining({ scope: "MAP01", record: "Sector", index: 0, field: "special", newValue: 3 }));
+    // MAP01 玩家出生点所在的 #0 扇区改为随机闪烁（special 1）：大部分时间保持亮相位，偶尔闪暗；MAP02 #0 不改
+    expect(r.changes).toContainEqual(expect.objectContaining({ scope: "MAP01", record: "Sector", index: 0, field: "special", newValue: 1 }));
     // 这个 pin 带指纹，在夹具上按指纹校验通过
     expect(r.pins).toEqual([expect.objectContaining({ operationId: "strobe-start-map01", result: "EXACT", index: 0, fingerprintChecked: true, score: 1 })]);
     expect(r.receipt!.entries.find((e) => e.operationId === "strobe-start-map01")!.selection).toEqual({ kind: "EXACT", expectedIndex: 0, fingerprintChecked: true, score: 1 });

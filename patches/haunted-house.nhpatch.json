@@ -48,7 +48,7 @@
           }
         }
       },
-      "change": { "special": { "set": 3 } }
+      "change": { "special": { "set": 1 } }
     },
     {
       "id": "demons-to-spectres",
