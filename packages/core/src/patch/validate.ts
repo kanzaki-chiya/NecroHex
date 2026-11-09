@@ -259,29 +259,31 @@ function copyChange(ch: Record<string, unknown>): Change {
   return { clamp: clamp! };
 }
 
-/** 结构校验通过之后调用：按白名单复制，fingerprint 经规范 JSON 深复制。 */
+/** 结构校验通过之后调用：按白名单复制选择器，fingerprint 经规范 JSON 深复制。 */
+function copySelect(s: Record<string, unknown>): Selector {
+  const record = s.record as string;
+  if (has(s, "all")) return { record, all: true };
+  if (has(s, "where")) {
+    const where: Record<string, Condition> = {};
+    for (const [f, cond] of Object.entries(s.where as Record<string, unknown>)) where[f] = copyCondition(cond as Record<string, unknown>);
+    return { record, where };
+  }
+  const pin = s.pin as Record<string, unknown>;
+  return {
+    record,
+    pin: {
+      map: pin.map as string,
+      expectedIndex: pin.expectedIndex as number,
+      ...(has(pin, "fingerprint") && pin.fingerprint !== undefined ? { fingerprint: JSON.parse(canonicalJson(pin.fingerprint)) as unknown } : {}),
+    },
+  };
+}
+
+/** 结构校验通过之后调用：按白名单复制。 */
 function copyPatch(p: Record<string, unknown>): Patch {
   const t = p.target as Record<string, unknown>;
   const ops = (p.operations as Record<string, unknown>[]).map((op): Operation => {
-    const s = op.select as Record<string, unknown>;
-    const record = s.record as string;
-    let select: Selector;
-    if (has(s, "all")) select = { record, all: true };
-    else if (has(s, "where")) {
-      const where: Record<string, Condition> = {};
-      for (const [f, cond] of Object.entries(s.where as Record<string, unknown>)) where[f] = copyCondition(cond as Record<string, unknown>);
-      select = { record, where };
-    } else {
-      const pin = s.pin as Record<string, unknown>;
-      select = {
-        record,
-        pin: {
-          map: pin.map as string,
-          expectedIndex: pin.expectedIndex as number,
-          ...(has(pin, "fingerprint") && pin.fingerprint !== undefined ? { fingerprint: JSON.parse(canonicalJson(pin.fingerprint)) as unknown } : {}),
-        },
-      };
-    }
+    const select = copySelect(op.select as Record<string, unknown>);
     const change: Record<string, Change> = {};
     for (const [f, ch] of Object.entries(op.change as Record<string, unknown>)) change[f] = copyChange(ch as Record<string, unknown>);
     return { id: op.id as string, select, change };
@@ -346,29 +348,7 @@ export function validatePatchSchema(patch: Patch, schema: RecordSchema): PatchIs
     if (!rec.writable) c.add(`${op.select.record} records are read-only`, base + "/select/record", id);
     const kindOf = (f: string): FieldKind | undefined => (Object.hasOwn(rec.fields, f) ? rec.fields[f] : undefined);
 
-    if ("where" in op.select) {
-      for (const [field, cond] of Object.entries(op.select.where)) {
-        const p = base + "/select/where" + pointer(field);
-        const kind = kindOf(field);
-        if (kind === undefined) {
-          c.add(`${op.select.record} has no field ${field}`, p, id);
-          continue;
-        }
-        if (kind === "other") {
-          c.add(`${op.select.record}.${field} cannot be used in a condition`, p, id);
-          continue;
-        }
-        for (const o of COMPARE_OPS) {
-          const v = cond[o];
-          if (v === undefined) continue;
-          if (kind === "name" && ORDER_OPS.includes(o)) c.add(`${o} is only allowed on integer fields; ${op.select.record}.${field} is a name`, p + pointer(o), id);
-          else if (!valueMatchesKind(v, kind)) c.add(`${o} value type does not match ${op.select.record}.${field} (${kind})`, p + pointer(o), id);
-        }
-        cond.in?.forEach((v, i) => {
-          if (!valueMatchesKind(v, kind)) c.add(`in value type does not match ${op.select.record}.${field} (${kind})`, p + pointer("in", i), id);
-        });
-      }
-    }
+    checkWhereSchema(c, op.select, rec.fields, base, id);
 
     for (const [field, ch] of Object.entries(op.change)) {
       const p = base + "/change" + pointer(field);
@@ -388,5 +368,74 @@ export function validatePatchSchema(patch: Patch, schema: RecordSchema): PatchIs
       }
     }
   });
+  return c.issues;
+}
+
+/** where 条件按 schema 校验：字段存在、可用于条件、值类型与字段一致、名称字段不用大小比较。 */
+function checkWhereSchema(c: Collector, select: Selector, fields: Readonly<Record<string, FieldKind>>, base: string, id: string | undefined): void {
+  if (!("where" in select)) return;
+  for (const [field, cond] of Object.entries(select.where)) {
+    const p = base + "/select/where" + pointer(field);
+    const kind = Object.hasOwn(fields, field) ? fields[field] : undefined;
+    if (kind === undefined) {
+      c.add(`${select.record} has no field ${field}`, p, id);
+      continue;
+    }
+    if (kind === "other") {
+      c.add(`${select.record}.${field} cannot be used in a condition`, p, id);
+      continue;
+    }
+    for (const o of COMPARE_OPS) {
+      const v = cond[o];
+      if (v === undefined) continue;
+      if (kind === "name" && ORDER_OPS.includes(o)) c.add(`${o} is only allowed on integer fields; ${select.record}.${field} is a name`, p + pointer(o), id);
+      else if (!valueMatchesKind(v, kind)) c.add(`${o} value type does not match ${select.record}.${field} (${kind})`, p + pointer(o), id);
+    }
+    cond.in?.forEach((v, i) => {
+      if (!valueMatchesKind(v, kind)) c.add(`in value type does not match ${select.record}.${field} (${kind})`, p + pointer("in", i), id);
+    });
+  }
+}
+
+/** 只读查询：在哪些地图上（默认全部）用哪个选择器。选择器的规则与补丁完全相同。 */
+export interface Query {
+  maps: "*" | string[];
+  select: Selector;
+}
+
+/** 查询的结构校验，路径相对查询对象（例如 /select/where/type）。 */
+export function validateQueryStructure(input: unknown): Validated<Query> {
+  const c = new Collector();
+  if (!isPlainObject(input)) {
+    c.add("query must be a JSON object", "");
+    return { ok: false, issues: c.issues };
+  }
+  c.unknownKeys(input, ["maps", "select"], "");
+  let mapNames: Set<string> | "*" = "*";
+  if (has(input, "maps") && input.maps !== "*") {
+    if (!Array.isArray(input.maps) || input.maps.length === 0) c.add('maps must be "*" or a non-empty array of map names', "/maps");
+    else {
+      const seen = new Set<string>();
+      input.maps.forEach((m, i) => {
+        if (typeof m !== "string" || m === "") c.add("map name must be a non-empty string", pointer("maps", i));
+        else if (seen.has(m.toUpperCase())) c.add(`map ${m} is listed twice`, pointer("maps", i));
+        else seen.add(m.toUpperCase());
+      });
+      mapNames = seen;
+    }
+  }
+  if (!has(input, "select")) c.add("select is required", "/select");
+  else checkSelect(c, input.select, "/select", undefined, mapNames);
+  if (c.issues.length > 0) return { ok: false, issues: c.issues };
+  const maps = has(input, "maps") && input.maps !== "*" ? [...(input.maps as string[])] : "*";
+  return { ok: true, value: { maps, select: copySelect(input.select as Record<string, unknown>) } };
+}
+
+/** 查询按 schema 校验。查询只读，所以只读记录（例如 Linedef）也可以查询。 */
+export function validateQuerySchema(query: Query, schema: RecordSchema): PatchIssue[] {
+  const c = new Collector();
+  const rec = Object.hasOwn(schema, query.select.record) ? schema[query.select.record] : undefined;
+  if (!rec) c.add(`record type ${query.select.record} is not declared`, "/select/record");
+  else checkWhereSchema(c, query.select, rec.fields, "", undefined);
   return c.issues;
 }
