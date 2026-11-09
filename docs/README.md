@@ -10,3 +10,4 @@
 | [demo-script.md](demo-script.md) | 演示视频脚本 |
 | [kiro-usage.md](kiro-usage.md) | Kiro 使用的真实记录 |
 | [submission-checklist.md](submission-checklist.md) | 提交清单 |
+| [workbench-mockup/](workbench-mockup/README.md) | 工作台的视觉和交互示例 |
