@@ -24,8 +24,17 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 | Hook | 触发条件 | 动作 | 拦下过什么 |
 | :--- | :--- | :--- | :--- |
-| Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。2026-11-09 在实现写入护栏的会话里用 Kiro 的 createHook 创建，Kiro 提示下次会话开始才生效，所以这次会话里没有触发过。手动运行同一条命令，生成的 `records.ts` 与已提交的版本相同 |
-| Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。与上一条同时创建，同样在这次会话里没有触发过。手动运行通过。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
+| Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。2026-11-09 在新会话里确认会触发，见下面的验证。2026-11-09 在实现写入护栏的会话里用 Kiro 的 createHook 创建，Kiro 提示下次会话开始才生效，所以这次会话里没有触发过。手动运行同一条命令，生成的 `records.ts` 与已提交的版本相同 |
+| Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。2026-11-09 在新会话里确认会触发，但它的输出没有回到 Agent，见下面的验证。与上一条同时创建，同样在这次会话里没有触发过。手动运行通过。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
+
+### 2026-11-09 新会话里的验证
+
+两个 Hook 创建后的第一个新会话里各测了一次。Agent 通过工具保存文件，Hook 的输出没有出现在 Agent 的工具结果里，所以是否触发是用旁证判断的。
+
+| Hook | 做了什么 | 结果 |
+| :--- | :--- | :--- |
+| Typecheck on save | 在 `packages/core/src/span.ts` 的 `spanLength` 里加 `const hookProbe: number = "not a number";` 并保存。第一次（先 `str_replace`，再整文件写入）没有观察进程；第二次保存前先启动一个每 0.3 秒列一次进程的脚本 | 第一次：Agent 这边看不到任何 Hook 输出，也没有旁证，无法判断是否触发。第二次：保存之前的采样里没有相关进程，保存之后（10:18:38）出现了 `cmd.exe /d /s /c "pnpm -r typecheck"` 和两个 `tsc -p tsconfig.json` 进程，约 1 秒后消失，说明 Hook 触发了。Hook 自己的输出和退出码 Agent 看不到，IDE 里是否显示了报错没有确认；在同一状态下手动运行 `pnpm --filter @necrohex/core typecheck`，报 `src/span.ts(12,9): error TS2322`，退出码非零。之后用 `git checkout -- packages/core/src/span.ts` 恢复，这个错误没有提交 |
+| Regenerate WAD records | 在 `packages/adapter-wad/spec/wad.records.yaml` 的头部注释里加一行 `# hook probe` 并保存，再删掉这一行并保存 | 触发了：`src/generated/records.ts` 的修改时间从 09:41:53 变为 10:17:51（第一次保存），恢复时又变为 10:19:19。生成脚本每次都会写文件，文件内容没有变化（`git status` 只显示 yaml 有改动，恢复后工作区干净）。进程列表脚本没有抓到这次的进程，可能是生成太快，在两次采样之间结束了 |
 
 两个 Hook 创建时把 `timeout` 写在了 `action` 里。2026-11-09 查 [Kiro 文档的 Hook file schema](https://kiro.dev/docs/hooks.md)，字段表列的是 `hooks[].timeout`（单位为秒，默认 60），于是把它移到 `hooks[]` 这一层，数值不变（120 和 180）。之前写在 `action` 里时 Kiro 是否按默认的 60 秒处理，没有验证。
 
