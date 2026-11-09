@@ -1,0 +1,25 @@
+{
+  "name": "@necrohex/cli",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "necrohex": "./src/main.ts"
+  },
+  "exports": {
+    "./ops": "./src/ops.ts",
+    "./errors": "./src/errors.ts",
+    "./workspace": "./src/workspace.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@necrohex/adapter-wad": "workspace:*",
+    "@necrohex/core": "workspace:*"
+  }
+}

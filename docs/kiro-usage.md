@@ -50,7 +50,11 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 | 工具 | 在开发中如何使用 |
 | :--- | :--- |
-| | |
+| NecroHex 自己的 MCP Server（`packages/mcp-server`） | 2026-11-09 实现。Agent 想写 `.kiro/settings/mcp.json` 时被这个环境的权限规则拦下（拒绝写 `.kiro/settings/`），Agent 没有绕过，改为提交 `packages/mcp-server/mcp.example.json`，由用户复制。到这次会话结束为止，Kiro 里还没有加载这个服务器，也没有在 Kiro 对话里真实调用过它的工具：Kiro 端到端没有跑通。服务器本身用官方 SDK 的 stdio 客户端测过（`packages/mcp-server/test/stdio.test.ts`，在配置了引擎的环境里 10 个用例全部通过） |
+
+### Kiro 端到端调用记录
+
+还没有。待用户把配置放到 `.kiro/settings/mcp.json`、Kiro 连上服务器之后，在对话里按“查询 MAP01 → 为出生点所在房间之外的一个房间写补丁 → plan_patch → apply_patch → verify_output”调用，再把实际调用和结果记在这里。
 
 ## 属性测试捕获的 Bug
 

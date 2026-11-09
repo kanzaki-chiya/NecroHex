@@ -1,0 +1,25 @@
+{
+  "name": "@necrohex/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "necrohex-mcp": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@necrohex/adapter-wad": "workspace:*",
+    "@necrohex/cli": "workspace:*",
+    "@necrohex/core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

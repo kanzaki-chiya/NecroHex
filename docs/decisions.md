@@ -219,3 +219,23 @@
 | 这个结果的依据比 #19 → #42 弱，如实记录 | #196 没有对照一（边界线段有改动），只有面积覆盖：#74 的采样点有 0.94 落在 #196 内。相似度 0.8728，只比高置信度下限 0.85 高 0.0228。0.12.1 的地板是 `AQF026`，0.13.0 是 `SLIME14`，贴图本身也改了。0.13.0 里同下标的 #74 是另一条窄条（bbox [1852,-760,1872,-640]，面积 824） |
 | 回归测试增加：这个 pin 在 0.13.0 上是 `RELOCATED` #196、相似度 0.8728，同下标的 #74 不是高置信度候选；演示补丁文件的回执为 #74 → #196。#19 → #42 的回归测试保留 | 需要 `fixtures/cache` 下的两个发行版，缺文件时跳过 |
 | 在画面上确认 #196 的血池 | 没有做。冒烟测试无窗口运行 |
+
+## 2026-11-09：CLI 和 MCP Server
+
+按用户要求没有写 Spec，直接实现 `docs/design.md` 第 12 节。
+
+| 决定 | 原因 |
+| :--- | :--- |
+| 共用的操作（inspect、query、plan、apply、revert、verify、路径限制、结构化错误）放在 `packages/cli/src/ops.ts` 等文件，经 `@necrohex/cli/ops` 等子路径导出；`mcp-server` 依赖 `cli`，每个工具只是一层参数转换 | 要求 CLI 和 MCP 是同一套逻辑。另建一个共享包会多出 structure 规则里没有的第六个包；放进 `adapter-wad` 会让它带上文件系统和 planId 这类工具层的概念。依赖方向仍然单向：`mcp-server` → `cli` → `adapter-wad` → `core` |
+| core 新增只读的 `queryRecords`，`query_entities` 和 `query` 用它 | 查询要和补丁选中同样的记录。它复用补丁的选择器校验和求值（`validate.ts` 里把选择器复制和 where 校验抽成函数，没有复制代码），不计算新值、不写入。属性测试核对：补丁干跑通过时，每个操作的查询结果等于该操作 changes 里的记录 |
+| 只用公开导出；测试 `packages/cli/test/imports.test.ts` 扫描两个包的全部源码，禁止 `@necrohex/core/internal`、深入其他包的 `src` 和跨包相对路径 | 内部入口提供 `ByteOverlay` 和写回通道，绕过它们就绕过了写入校验 |
+| 恰好五个工具。参数里没有偏移、字节、命令；引擎路径只来自服务器的环境变量 `NECROHEX_ENGINE` | 设计文档第 4 节：MCP 不提供 `write_bytes` 一类接口。引擎路径作为工具参数就等于让调用方执行任意程序 |
+| 路径：工作区根目录取 `NECROHEX_WORKSPACE`，默认当前目录，解析符号链接后再判断。含 `..` 段的路径一律拒绝（`PATH_TRAVERSAL`），即使解析后仍在工作区内；输入的真实路径必须在工作区内；输出的父目录真实路径必须在工作区内，文件本身必须不存在，并用独占创建（`wx`）写入，多个输出有一个失败就删掉本次已写的 | 不给“穿越后又回来”留判断空间。独占创建避免检查之后才出现的同名文件被覆盖。因为输出必须是新文件，输入文件、基础 IWAD 和已有输出都不可能被覆盖 |
+| `planId` = `plan-` + SHA-256（补丁哈希、输入哈希、基础 IWAD 哈希）。MCP 只接受本进程 `plan_patch` 发出、还没用过的 `planId`，并在应用前重新计算绑定；补丁、输入或 IWAD 变了为 `PLAN_MISMATCH`，没给为 `PLAN_REQUIRED`，不认识或已用过为 `PLAN_UNKNOWN`。CLI 的 `apply` 可以不给 `--plan-id`，给了就同样核对 | 每次调用都是独立进程的 CLI 无法保存已发出的 planId；绑定哈希让它仍能发现“干跑之后东西变了”。MCP 额外要求 planId 来自自己，防止调用方跳过干跑 |
+| `apply_patch` 写出 PWAD 和回执，可选写出整份应用后的 WAD（`fullOutputPath`） | 回执对应整份 WAD 的输入和输出，撤销要作用在整份 WAD 上 |
+| RELOCATED 的 pin 带 `needsReview: true` 和“已重定位，请核对”的说明，列出下标变化和相似度，并说明这不代表已确认正确；结果里另有 `relocatedNeedReview` 列表 | 重定位只说明它是唯一达到高置信度的候选。上一节的 #74 → #196 就只有面积覆盖作为旁证 |
+| `verify_output` 不依赖整份输出也能核对：用输入和回执里的新值（经 `WadFile.setField`，按记录和字段）重建应用后的 WAD，核对它的哈希等于回执的 `outputHash`、字节变化只在回执区间内（I-3）、按回执撤销后与输入相同（I-4）、PWAD 里每张改过的地图都有标记和全部数据 Lump 且与重建结果逐字节相同。配置了 `NECROHEX_ENGINE` 并给出 `iwadPath` 时再跑引擎冒烟测试；没有运行时状态为 `incomplete`，`verified` 为 `false`，CLI 退出码为 1 | 引擎没跑就不能算通过。结果说明只写检查了什么，不说地图可以通关 |
+| 补丁被拒绝是正常结果（`status: "rejected"` 加问题列表）；路径、坏 JSON、坏 WAD、planId 问题是结构化错误（`isError: true`，`{ error: { code, message } }`）。服务器捕获每个工具里的异常，未捕获的异常只写 stderr，不退出 | 要求错误不能让服务器崩溃。stdout 只给 MCP 协议 |
+| CLI 退出码：0 成功；1 补丁被拒绝、校验失败或不完整、文件内容问题（坏 WAD、坏 JSON、planId 不匹配）；2 用法错误，包括参数、路径不允许、输出已存在 | 路径和已存在的输出是调用方给错了参数，归到用法错误 |
+| 新依赖：`@modelcontextprotocol/sdk` 1.32.2（MIT，官方 SDK）和它要求的 `zod` 4.6.7（MIT），只在 `mcp-server`。`pnpm licenses list --prod` 列出 91 个生产依赖：MIT 81 个、ISC 7 个、BSD-3-Clause 2 个（`fast-uri`、`qs`）、BSD-2-Clause 1 个（`json-schema-typed`），都允许在 MIT 项目里使用 | tech 规则要求先确认许可证。SDK 还带了 HTTP 传输用的 express、hono 等，本服务只用 stdio |
+| `.kiro/settings/mcp.json` 没有由 Agent 写入：这个环境的权限规则禁止 Agent 写 `.kiro/settings/`。同样的内容放在 `packages/mcp-server/mcp.example.json`，由用户复制。配置里没有绝对路径和密钥：用 `node packages/mcp-server/src/main.ts`（Kiro 以工作区根目录为工作目录启动服务器），引擎路径经 `${NECROHEX_ENGINE}` 从用户环境取 | 不绕过权限规则 |
