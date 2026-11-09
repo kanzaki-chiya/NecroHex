@@ -239,3 +239,13 @@
 | CLI 退出码：0 成功；1 补丁被拒绝、校验失败或不完整、文件内容问题（坏 WAD、坏 JSON、planId 不匹配）；2 用法错误，包括参数、路径不允许、输出已存在 | 路径和已存在的输出是调用方给错了参数，归到用法错误 |
 | 新依赖：`@modelcontextprotocol/sdk` 1.32.2（MIT，官方 SDK）和它要求的 `zod` 4.6.7（MIT），只在 `mcp-server`。`pnpm licenses list --prod` 列出 91 个生产依赖：MIT 81 个、ISC 7 个、BSD-3-Clause 2 个（`fast-uri`、`qs`）、BSD-2-Clause 1 个（`json-schema-typed`），都允许在 MIT 项目里使用 | tech 规则要求先确认许可证。SDK 还带了 HTTP 传输用的 express、hono 等，本服务只用 stdio |
 | `.kiro/settings/mcp.json` 没有由 Agent 写入：这个环境的权限规则禁止 Agent 写 `.kiro/settings/`。同样的内容放在 `packages/mcp-server/mcp.example.json`，由用户复制。配置里没有绝对路径和密钥：用 `node packages/mcp-server/src/main.ts`（Kiro 以工作区根目录为工作目录启动服务器），引擎路径经 `${NECROHEX_ENGINE}` 从用户环境取 | 不绕过权限规则 |
+
+## 2026-11-09：拒绝 Windows 特殊文件名
+
+独立检查发现，输出路径可以用 Windows 的特殊名字绕过“只写新文件”：`NUL` 让 PWAD 写进空设备而服务器报告 `applied` 并用掉 planId；`in.wad:hidden` 在输入文件上创建了 NTFS 附加数据流；`out/s.wad:zone` 生成了一个空的 `s.wad` 和一个隐藏数据流。原因是“文件不存在”用 `lstat` 判断，而这些名字在 `lstat` 看来都不存在。
+
+| 决定 | 原因 |
+| :--- | :--- |
+| `workspace.ts` 在解析路径之前按语法拒绝（`INVALID_PATH`，`details.rule` 为 `colon`、`device-name` 或 `trailing-dot-or-space`）：盘符之外的冒号；任何一段的文件名主体（第一个点之前、去掉末尾空格）是 `CON`、`PRN`、`AUX`、`NUL`、`COM0`–`COM9`、`LPT0`–`LPT9`、`CONIN$`、`CONOUT$`，不分大小写，带不带扩展名都算；以点或空格结尾的段 | 只按名字判断，不依赖文件系统的回答，所有平台规则一致。`COM` 和 `LPT` 后跟上标 ¹²³ 在 Windows 上也是设备名，一并拒绝。单独的 `.` 段（当前目录）和开头的盘符（`X:`）不算 |
+| 输入路径用同样的规则 | 读 `in.wad:hidden` 会读到附加数据流而不是文件本身，`NUL` 会读到空内容 |
+| 检查发生在任何写入之前，MCP 的 planId 只在 `applied` 之后才作废 | 被拒绝的调用不应该让调用方重新干跑。MCP 测试核对：每个特殊名字分别作为 `outputPath`、`receiptPath`、`fullOutputPath` 都返回结构化错误，工作区文件列表和输入哈希不变，没有附加数据流，之后同一个 planId 仍能成功应用 |

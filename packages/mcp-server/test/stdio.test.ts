@@ -182,6 +182,40 @@ describe("MCP Server over stdio（无引擎）", () => {
     }
   });
 
+  it("Windows 设备名、附加数据流、以点或空格结尾的名字：输出和输入都返回 INVALID_PATH，不写任何东西，planId 仍然可用", T, async () => {
+    mkdirSync(join(ws, "out"), { recursive: true });
+    const listing = () => {
+      const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? [e.name + "/", ...walk(join(d, e.name)).map((x) => `${e.name}/${x}`)] : [e.name]));
+      return walk(ws).sort();
+    };
+    const before = listing();
+    const inputHash = sha(join(ws, "map.wad"));
+    const { body: p } = await s.call("plan_patch", { inputPath: "map.wad", patch: lightPatch(100) });
+    const BAD = ["NUL", "nul.wad", "map.wad:hidden", "out/s.wad:zone", "CON", "con.receipt.json", "COM1.wad", "LPT9", "CONIN$", "conout$.wad", "aux .wad", "trail.", "trail ", "dir./x.wad", "out/NUL/x.wad", "C:relative.wad"];
+    for (const name of BAD) {
+      for (const field of ["outputPath", "receiptPath", "fullOutputPath"] as const) {
+        const args: Record<string, unknown> = { inputPath: "map.wad", patch: lightPatch(100), outputPath: "fresh.wad", planId: p.planId, [field]: name };
+        const r = await s.call("apply_patch", args);
+        expect(r, `${field} = ${name}`).toMatchObject({ isError: true, body: { error: { code: "INVALID_PATH" } } });
+      }
+    }
+    for (const name of ["map.wad:hidden", "NUL", "map.wad.", "map.wad ", "out/../map.wad"]) {
+      const r = await s.call("inspect_wad", { path: name });
+      expect(r.isError, name).toBe(true);
+      expect(["INVALID_PATH", "PATH_TRAVERSAL"]).toContain(r.body.error.code);
+    }
+    expect(listing()).toEqual(before);
+    expect(sha(join(ws, "map.wad"))).toBe(inputHash);
+    if (process.platform === "win32") {
+      // 附加数据流不会出现在目录列表里，单独检查
+      expect(existsSync(join(ws, "map.wad:hidden"))).toBe(false);
+      expect(existsSync(join(ws, "out", "s.wad"))).toBe(false);
+    }
+    // 被拒绝的调用没有用掉 planId
+    const ok = await s.call("apply_patch", { inputPath: "map.wad", patch: lightPatch(100), outputPath: "out/ok.wad", planId: p.planId });
+    expect(ok.body.status).toBe("applied");
+  });
+
   it("非法补丁、坏 JSON、坏 WAD、错误的参数类型返回结构化错误，服务器继续可用", T, async () => {
     const invalid = await s.call("plan_patch", { inputPath: "map.wad", patch: { schemaVersion: 1, name: "x", target: { format: "wad", maps: "*" }, operations: [{ id: "o", select: { record: "Sector", offset: 4 }, change: { bytes: { set: 1 } } }] } });
     expect(invalid.isError).toBe(false);
