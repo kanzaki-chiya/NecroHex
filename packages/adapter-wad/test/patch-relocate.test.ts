@@ -218,8 +218,11 @@ describe.each(SAMPLES)("Feature: relocation, I-5 扇区重排（%s）", (_label,
       }),
       { numRuns: RUNS },
     );
-    // 两类结果都要真的出现，属性才不是空转
-    expect(relocated.n).toBeGreaterThan(RUNS / 4);
+    // 两类结果都要真的出现，属性才不是空转。
+    // 门槛只用来发现空转（RELOCATED 总不出现时为 0），不衡量命中率。2026-11-09 连跑 60 次统计 RELOCATED 次数：
+    // 生成样本均值 31.2、标准差 4.6、最小 20；Freedoom 夹具均值 74.4、最小 66。原门槛 RUNS / 4（> 25）在生成样本上约有一成概率失败；
+    // 改为 RUNS / 20（> 5），比生成样本的均值低 5 个标准差以上。
+    expect(relocated.n).toBeGreaterThan(RUNS / 20);
     if (_label === "生成样本") expect(ambiguous.n).toBeGreaterThan(0);
   });
 });

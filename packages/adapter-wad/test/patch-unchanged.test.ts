@@ -25,7 +25,9 @@ describe.each(SAMPLES)("Feature: patch-engine, Property 12: unchanged 与 change
         expect(r.changedCount).toBe(entries.filter((e) => !e.unchanged).length);
         if (entries.some((e) => e.unchanged) && entries.some((e) => !e.unchanged)) both.hit();
       }),
-      { numRuns: RUNS },
+      // 两种条目同时出现的运行在 Freedoom 夹具上只占约 6%（2026-11-09 连跑 60 次：每 100 次均值 5.8、最小 1），
+      // 100 次运行时一次都不出现的概率约 0.25%。属性不变，只把运行次数加到 3 倍，这个概率降到 1e-7 以下。
+      { numRuns: 3 * RUNS },
     );
     expect(ok.n).toBeGreaterThan(0);
     // 生成器约一半 set 取旧值，两种条目应同时出现过
