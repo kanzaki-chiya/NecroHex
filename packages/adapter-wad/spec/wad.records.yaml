@@ -6,6 +6,10 @@
 #   int16 / uint16  16 位整数
 #   name8           8 字节定长名称，NUL 填充，不保证有 NUL 结尾
 # count 省略表示单个值；count: N 表示 N 个连续值，读出为数组。
+#
+# 指向其他记录的下标（v1、v2、sidenum、sector）都是 uint16。
+# 0xFFFF（65535）表示“无”，例如单面线段的 sidenum[1]；原版引擎按有符号数读，看到的是 -1。
+# 按 uint16 读，32768 以上的下标不会被读成负数。
 
 records:
   Sector:
@@ -39,7 +43,7 @@ records:
       - { name: flags, type: uint16 }
       - { name: special, type: int16 }
       - { name: tag, type: int16 }
-      - { name: sidenum, type: int16, count: 2 }
+      - { name: sidenum, type: uint16, count: 2 }
 
   Sidedef:
     lump: SIDEDEFS
@@ -50,7 +54,7 @@ records:
       - { name: toptexture, type: name8 }
       - { name: bottomtexture, type: name8 }
       - { name: midtexture, type: name8 }
-      - { name: sector, type: int16 }
+      - { name: sector, type: uint16 }
 
   Vertex:
     lump: VERTEXES

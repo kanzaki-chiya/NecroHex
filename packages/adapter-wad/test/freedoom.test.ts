@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildWad, MAP_DATA_LUMPS, WadFile, WadRecordError } from "../src/index.ts";
+import { buildWad, MAP_DATA_LUMPS, NO_INDEX, WadFile, WadRecordError } from "../src/index.ts";
 import { changedIndices, equalBytes, insideAny, legacyMaps, mapsWithoutFormat, withFilepos } from "./helpers.ts";
 
 const fixtures = resolve(import.meta.dirname, "../fixtures");
@@ -49,8 +49,12 @@ describe("Freedoom 夹具（PWAD 子集）", () => {
     for (const l of lines) {
       expect(l.v1).toBeLessThan(verts.length);
       expect(l.v2).toBeLessThan(verts.length);
-      for (const s of l.sidenum) expect(s).toBeLessThan(sides.length);
+      // 前面必须有；背面为 0xFFFF 表示单面线段
+      expect(l.sidenum[0]).toBeLessThan(sides.length);
+      if (l.sidenum[1] !== NO_INDEX) expect(l.sidenum[1]).toBeLessThan(sides.length);
     }
+    expect(lines.some((l) => l.sidenum[1] === NO_INDEX)).toBe(true);
+    expect(lines.every((l) => l.sidenum.every((s) => s >= 0))).toBe(true);
     for (const s of sides) expect(s.sector).toBeLessThan(sectors.length);
     // 记录区间恰好铺满 Lump，没有余字节
     for (const [name, size] of [["SECTORS", 26], ["THINGS", 10], ["LINEDEFS", 14], ["SIDEDEFS", 30], ["VERTEXES", 4]] as const) {

@@ -10,6 +10,9 @@ import {
 } from "./generated/records.ts";
 import * as generated from "./generated/records.ts";
 
+/** 记录下标字段（Linedef.v1、v2、sidenum，Sidedef.sector）中表示“无”的值。 */
+export const NO_INDEX = 0xffff;
+
 export const HEADER_SIZE = 12;
 export const DIRECTORY_ENTRY_SIZE = 16;
 

@@ -6,7 +6,7 @@
  */
 import type { ProposedChange, ProtectionHook, RecordReader } from "@necrohex/core";
 import { mapBossTypes, SOLID_CATEGORIES, thingInfo } from "./thing-types.ts";
-import type { MapScope, WadFile } from "./wad.ts";
+import { NO_INDEX, type MapScope, type WadFile } from "./wad.ts";
 
 /** record-source 交给钩子的上下文：读取只读记录（LINEDEFS、SIDEDEFS）推导扇区的触发关系。 */
 export class WadHookContext {
@@ -39,7 +39,7 @@ export class WadHookContext {
       for (const l of this.#wad.readRecords(lines, "Linedef")) {
         if (l.special === 0 || l.tag !== 0) continue;
         const back = l.sidenum[1];
-        if (back < 0 || back >= sideCount) continue;
+        if (back === NO_INDEX || back >= sideCount) continue;
         out.add(this.#wad.readRecord(sides, "Sidedef", back).sector);
       }
     }

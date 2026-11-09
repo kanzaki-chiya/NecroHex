@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateRecordsSource, OUTPUT_PATH, SPEC_PATH } from "../scripts/generate-records.ts";
-import { buildWad, RECORD_LAYOUTS, WadFile, type RecordName } from "../src/index.ts";
+import { buildWad, NO_INDEX, RECORD_LAYOUTS, WadFile, type RecordName } from "../src/index.ts";
 
 function sectorBytes(): Uint8Array {
   const raw = new Uint8Array(26 * 2);
@@ -57,7 +57,15 @@ describe("生成的记录层", () => {
     });
   });
 
-  it("读取 Linedef 的数组字段和无符号字段", () => {
+  it("索引字段都是 uint16", () => {
+    expect(RECORD_LAYOUTS.Linedef.fields.v1.type).toBe("uint16");
+    expect(RECORD_LAYOUTS.Linedef.fields.v2.type).toBe("uint16");
+    expect(RECORD_LAYOUTS.Linedef.fields.sidenum.type).toBe("uint16");
+    expect(RECORD_LAYOUTS.Sidedef.fields.sector.type).toBe("uint16");
+    expect(NO_INDEX).toBe(0xffff);
+  });
+
+  it("读取 Linedef 的数组字段和无符号字段；单面线段的 sidenum[1] 读作 0xFFFF", () => {
     const raw = new Uint8Array(14);
     const v = new DataView(raw.buffer);
     v.setUint16(0, 65535, true);
@@ -68,7 +76,7 @@ describe("生成的记录层", () => {
     const l = wad.readRecord(0, "Linedef", 0);
     expect(l.v1).toBe(65535);
     expect(l.flags).toBe(0x8001);
-    expect(l.sidenum).toEqual([-1, 3]);
+    expect(l.sidenum).toEqual([NO_INDEX, 3]);
   });
 
   it("尾部不足一条记录的字节不计入记录", () => {

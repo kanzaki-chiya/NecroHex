@@ -100,7 +100,7 @@ export const LinedefLayout = {
     flags: { offset: 4, type: "uint16", count: 1 },
     special: { offset: 6, type: "int16", count: 1 },
     tag: { offset: 8, type: "int16", count: 1 },
-    sidenum: { offset: 10, type: "int16", count: 2 },
+    sidenum: { offset: 10, type: "uint16", count: 2 },
   },
 } as const satisfies RecordLayout;
 
@@ -111,7 +111,7 @@ export function readLinedef(view: DataView, offset: number): Linedef {
     flags: view.getUint16(offset + 4, true),
     special: view.getInt16(offset + 6, true),
     tag: view.getInt16(offset + 8, true),
-    sidenum: [view.getInt16(offset + 10, true), view.getInt16(offset + 12, true)],
+    sidenum: [view.getUint16(offset + 10, true), view.getUint16(offset + 12, true)],
   };
 }
 
@@ -139,7 +139,7 @@ export const SidedefLayout = {
     toptexture: { offset: 4, type: "name8", count: 1 },
     bottomtexture: { offset: 12, type: "name8", count: 1 },
     midtexture: { offset: 20, type: "name8", count: 1 },
-    sector: { offset: 28, type: "int16", count: 1 },
+    sector: { offset: 28, type: "uint16", count: 1 },
   },
 } as const satisfies RecordLayout;
 
@@ -150,7 +150,7 @@ export function readSidedef(view: DataView, offset: number): Sidedef {
     toptexture: decodeName8(view, offset + 4),
     bottomtexture: decodeName8(view, offset + 12),
     midtexture: decodeName8(view, offset + 20),
-    sector: view.getInt16(offset + 28, true),
+    sector: view.getUint16(offset + 28, true),
   };
 }
 

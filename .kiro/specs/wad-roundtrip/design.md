@@ -396,8 +396,8 @@ export function encodeField(layout: FieldLayout, label: string, value: unknown):
 | :--- | :--- | :--- | :--- | :--- |
 | `Sector` | `SECTORS` | 26 | `floorheight` i16 @0,`ceilingheight` i16 @2,`floorpic` name8 @4,`ceilingpic` name8 @12,`lightlevel` i16 @20,`special` i16 @22,`tag` i16 @24 | 是 |
 | `Thing` | `THINGS` | 10 | `x` @0,`y` @2,`angle` @4,`type` @6(均 i16),`flags` u16 @8 | 是 |
-| `Linedef` | `LINEDEFS` | 14 | `v1` u16 @0,`v2` u16 @2,`flags` u16 @4,`special` i16 @6,`tag` i16 @8,`sidenum` i16×2 @10 | 否 |
-| `Sidedef` | `SIDEDEFS` | 30 | `textureoffset` @0,`rowoffset` @2(i16),`toptexture` @4,`bottomtexture` @12,`midtexture` @20(name8),`sector` i16 @28 | 否 |
+| `Linedef` | `LINEDEFS` | 14 | `v1` u16 @0,`v2` u16 @2,`flags` u16 @4,`special` i16 @6,`tag` i16 @8,`sidenum` u16×2 @10(0xFFFF 表示无) | 否 |
+| `Sidedef` | `SIDEDEFS` | 30 | `textureoffset` @0,`rowoffset` @2(i16),`toptexture` @4,`bottomtexture` @12,`midtexture` @20(name8),`sector` u16 @28 | 否 |
 | `Vertex` | `VERTEXES` | 4 | `x` @0,`y` @2(i16) | 否 |
 
 "可写"一栏不在 YAML 中,由 `wad.ts` 的 `WRITABLE_RECORDS` 决定(见 X-6)。
