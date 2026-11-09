@@ -8,9 +8,9 @@
       "matcher": "packages[\\\\/][^\\\\/]+[\\\\/]src[\\\\/].*\\.ts$",
       "action": {
         "type": "command",
-        "command": "pnpm -r typecheck",
-        "timeout": 180
-      }
+        "command": "pnpm -r typecheck"
+      },
+      "timeout": 180
     }
   ]
 }

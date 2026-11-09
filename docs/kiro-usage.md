@@ -25,6 +25,8 @@
 | Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。2026-11-09 在实现写入护栏的会话里用 Kiro 的 createHook 创建，Kiro 提示下次会话开始才生效，所以这次会话里没有触发过。手动运行同一条命令，生成的 `records.ts` 与已提交的版本相同 |
 | Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。与上一条同时创建，同样在这次会话里没有触发过。手动运行通过。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
 
+两个 Hook 创建时把 `timeout` 写在了 `action` 里。2026-11-09 查 [Kiro 文档的 Hook file schema](https://kiro.dev/docs/hooks.md)，字段表列的是 `hooks[].timeout`（单位为秒，默认 60），于是把它移到 `hooks[]` 这一层，数值不变（120 和 180）。之前写在 `action` 里时 Kiro 是否按默认的 60 秒处理，没有验证。
+
 ## Steering
 
 | 文件 | 起了什么作用 | 真实案例 |

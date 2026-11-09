@@ -8,9 +8,9 @@
       "matcher": "wad\\.records\\.yaml$",
       "action": {
         "type": "command",
-        "command": "pnpm --filter @necrohex/adapter-wad generate",
-        "timeout": 120
-      }
+        "command": "pnpm --filter @necrohex/adapter-wad generate"
+      },
+      "timeout": 120
     }
   ]
 }
