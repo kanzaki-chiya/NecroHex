@@ -288,10 +288,12 @@ describe("Freedoom 夹具", () => {
     expect(r.issues).toEqual([]);
     expect(r.warnings).toEqual([]);
     expect(r.checks.every((c) => c.status === "passed")).toBe(true);
-    for (const scope of ["MAP01", "MAP02"]) {
-      // 玩家出生点所在的 #0 扇区改为慢速频闪
-      expect(r.changes).toContainEqual(expect.objectContaining({ scope, record: "Sector", index: 0, field: "special", newValue: 3 }));
-    }
+    // MAP01 玩家出生点所在的 #0 扇区改为慢速频闪；MAP02 #0 的相邻扇区亮度与它相同，频闪暗相位会降到 0，所以不改
+    expect(r.changes).toContainEqual(expect.objectContaining({ scope: "MAP01", record: "Sector", index: 0, field: "special", newValue: 3 }));
+    expect(r.changes.some((c) => c.scope === "MAP02" && c.record === "Sector" && c.index === 0 && c.field === "special")).toBe(false);
+    // 全部扇区按同一比例变暗，亮度顺序不反转
+    const lights = r.changes.filter((c) => c.operationId === "dim-lights");
+    for (const a of lights) for (const b of lights) if ((a.oldValue as number) < (b.oldValue as number)) expect(a.newValue as number).toBeLessThanOrEqual(b.newValue as number);
     const back = revertPatch(r.output!, JSON.parse(JSON.stringify(r.receipt)), flatsAdapter);
     expect(back.issues).toEqual([]);
     expect(equalBytes(back.output!, FIXTURE)).toBe(true);

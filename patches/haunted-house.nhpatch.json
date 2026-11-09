@@ -5,8 +5,8 @@
   "operations": [
     {
       "id": "dim-lights",
-      "select": { "record": "Sector", "where": { "lightlevel": { "gte": 128 } } },
-      "change": { "lightlevel": { "scale": 0.5, "clamp": [32, 255] } }
+      "select": { "record": "Sector", "all": true },
+      "change": { "lightlevel": { "scale": 0.7, "clamp": [48, 255] } }
     },
     {
       "id": "strobe-lamps",
@@ -32,11 +32,6 @@
     {
       "id": "strobe-start-map01",
       "select": { "record": "Sector", "pin": { "map": "MAP01", "expectedIndex": 0 } },
-      "change": { "special": { "set": 3 } }
-    },
-    {
-      "id": "strobe-start-map02",
-      "select": { "record": "Sector", "pin": { "map": "MAP02", "expectedIndex": 0 } },
       "change": { "special": { "set": 3 } }
     },
     {
