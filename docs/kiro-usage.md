@@ -106,7 +106,7 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 5. **`apply_patch`**，参数 `{ inputPath: freedoom2.wad, iwadPath: freedoom2.wad, patch: <同一补丁>, planId: <第 4 步的 planId>, outputPath: "out/kiro-e2e.wad" }`。结果 `status: applied`，写出 `out/kiro-e2e.wad`（sha256 `8e1077f2…b5f74`）和 `out/kiro-e2e.receipt.json`。回执有 2 条记录，outputHash `5bb222ea…cbc953`，输入文件未改动。PWAD 包含 MAP01 的标记和全部 10 个数据 Lump，3 项导出检查通过。
 
-   结果里 `maps[0].modified` 是 `false`，可实际上 MAP01 的 SECTORS 改了两个字段（第 6 步的 `pwad-maps` 确认 PWAD 的数据和补丁后的 WAD 一致）。原因是 `packages/cli/src/ops.ts` 先把输出重新解析成新的 `WadFile`，再交给 `exportPwad`，新对象的 `dirtySpans()` 是空的，所以这个标志永远是 `false`。写出的字节没有问题，错的只是报告里的这个字段。这次没有修。
+   结果里 `maps[0].modified` 是 `false`，可实际上 MAP01 的 SECTORS 改了两个字段（第 6 步的 `pwad-maps` 确认 PWAD 的数据和补丁后的 WAD 一致）。原因是 `packages/cli/src/ops.ts` 先把输出重新解析成新的 `WadFile`，再交给 `exportPwad`，新对象的 `dirtySpans()` 是空的，所以这个标志永远是 `false`。写出的字节没有问题，错的只是报告里的这个字段。这次没有修，已在 cc2eafa 修复。
 
 6. **`verify_output`**，参数 `{ inputPath: freedoom2.wad, outputPath: "out/kiro-e2e.wad", receiptPath: "out/kiro-e2e.receipt.json", iwadPath: freedoom2.wad }`。结果 `status: passed`，`verified: true`。
    - `receipt-input-hash`、`receipt-replay`、`locality (I-3)`、`revert (I-4)`、`pwad-maps` 都是 passed；`full-output-hash` 是 skipped，因为没有传 `fullOutputPath`。
