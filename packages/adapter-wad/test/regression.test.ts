@@ -379,6 +379,8 @@ describe("P3-3 带指纹的 pin 改了自己指纹里的字段，再应用时不
   // Property 3 在生成样本上找到的反例（缩减后）：E1M1 #1 的 pin 带该扇区的真实指纹，同一操作把 ceilingheight 和 tag 改掉。
   // 第一次应用 EXACT；对输出再应用时，扇区的 tag 和高度已与指纹不同，相似度 0.8 低于 0.85，按规则为 CONFLICT_AMBIGUOUS。
   // 这是指纹语义，不是缺陷，引擎不放宽；Property 3 的前提加上"带指纹的 pin 不读取补丁写入的指纹字段"。
+  // 2026-11-09 指纹加入 bbox 和面积、几何权重合计 0.7 之后：这个扇区没有线段，三个几何量都为 null，两边一致各得满分，
+  // 高度只对一半、tag 不同，相似度为 0.9，再应用时仍是 EXACT。用例保留，断言改为新权重下的结果。
   const raw = sector([0x41, 0]);
   const v = new DataView(raw.buffer);
   v.setInt16(2, 128, true); // ceilingheight
@@ -390,17 +392,16 @@ describe("P3-3 带指纹的 pin 改了自己指纹里的字段，再应用时不
   ]);
 
   it("指纹没有几何数据（没有线段）", () => {
-    expect(fingerprint).toEqual({ tag: 7, floorpic: "A", ceilingpic: "", heights: [0, 128], centroid: null, lineCount: 0 });
+    expect(fingerprint).toEqual({ tag: 7, floorpic: "A", ceilingpic: "", heights: [0, 128], centroid: null, bbox: null, area: null, lineCount: 0 });
   });
 
-  it("第一次 EXACT；再应用为 CONFLICT_AMBIGUOUS，候选只有它自己，相似度 0.8", () => {
+  it("第一次 EXACT，相似度 1；再应用时高度和 tag 已不同，相似度 0.9，仍为 EXACT", () => {
     const first = applyPatch(bytes, patch, wadAdapter);
     expect(first.ok).toBe(true);
     expect(first.pins).toEqual([expect.objectContaining({ result: "EXACT", index: 0, score: 1, fingerprintChecked: true })]);
     const second = applyPatch(first.output!, patch, wadAdapter, { allowReapply: true });
-    expect(second.ok).toBe(false);
-    expect(second.output).toBeUndefined();
-    expect(second.issues).toEqual([expect.objectContaining({ code: "CONFLICT_AMBIGUOUS", operationId: "op0", candidates: [{ index: 0, score: 0.8 }] })]);
+    expect(second.issues).toEqual([]);
+    expect(second.pins).toEqual([expect.objectContaining({ result: "EXACT", index: 0, score: 0.9, fingerprintChecked: true })]);
   });
 });
 

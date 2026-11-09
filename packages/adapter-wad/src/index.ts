@@ -7,10 +7,15 @@ export * from "./generated/records.ts";
 export * from "./thing-types.ts";
 export { createWadAdapter, wadAdapter, type WadAdapterOptions } from "./record-source.ts";
 export {
-  CENTROID_RADIUS,
-  FINGERPRINT_WEIGHTS,
+  bboxOverlap,
+  FINGERPRINT_PARAMS,
+  sectorFingerprintParts,
   sectorFingerprints,
   sectorFingerprintScore,
   validateSectorFingerprint,
+  weightedScore,
+  type BBox,
+  type FingerprintParams,
+  type FingerprintPart,
   type SectorFingerprint,
 } from "./fingerprint.ts";

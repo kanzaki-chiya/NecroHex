@@ -42,6 +42,8 @@
             "ceilingpic": "FLOOR5_2",
             "heights": [0, 128],
             "centroid": [-143, -104],
+            "bbox": [-224, -288, -32, 32],
+            "area": 53504,
             "lineCount": 16
           }
         }
