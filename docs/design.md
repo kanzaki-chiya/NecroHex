@@ -130,6 +130,9 @@ NecroHex 是面向 1990 年代 WAD 地图格式的语义补丁工作台。
 - 初始阈值是 0.85 和 0.5，只是起点，要用真实 Freedoom 版本和合成样本校准。
 - 几何中心按扇区边界线段的去重顶点取平均。扇区可能不连通或带孔，不计算精确多边形。
 - 对称房间容易撞指纹，宁可判为歧义，也不要猜。
+- 相似度 ≥ 0.5 的记录是候选，≥ 0.85 的是高置信度候选。只有一个高置信度候选、并且第二名候选比它至少低 0.1 时才应用；有候选但不满足这一条（包括只有低于 0.85 的候选）时为 `CONFLICT_AMBIGUOUS`。
+- 没有 `fingerprint` 的 `pin` 只按下标选中，回执里 `fingerprintChecked` 为 `false`。只有 `Sector` 支持指纹，其他记录带指纹为 `INVALID_PATCH`。
+- 校准结果和指纹的组成见 [decisions.md](decisions.md)，真实版本的重放结果见 [relocation-report.md](relocation-report.md)。
 
 ## 8. 写入护栏
 

@@ -3,10 +3,12 @@ import {
   buildWad,
   MAP_DATA_LUMPS,
   RECORD_LAYOUTS,
+  sectorFingerprints,
   WadFile,
   type FieldLayout,
   type FieldType,
   type LumpInput,
+  type SectorFingerprint,
 } from "../src/index.ts";
 import { withFilepos } from "./helpers.ts";
 
@@ -163,6 +165,8 @@ export interface WadProfile {
   readonly mapNames: string[];
   /** 地图名（大写）→ 记录 → 当前记录值。同名地图只取第一张。 */
   readonly records: Record<string, Record<"Sector" | "Thing", Array<Record<string, number | string>>>>;
+  /** 地图名（大写）→ 各扇区的指纹。 */
+  readonly fingerprints: Record<string, SectorFingerprint[]>;
 }
 
 const profiles = new WeakMap<Uint8Array, WadProfile>();
@@ -184,6 +188,7 @@ export function asciiLower(s: string): string {
 function buildProfile(bytes: Uint8Array): WadProfile {
   const wad = WadFile.parse(bytes);
   const records: WadProfile["records"] = {};
+  const fingerprints: WadProfile["fingerprints"] = {};
   const mapNames: string[] = [];
   for (const m of wad.maps) {
     if (m.format !== "doom" || records[m.name.toUpperCase()]) continue;
@@ -193,8 +198,9 @@ function buildProfile(bytes: Uint8Array): WadProfile {
       return lump ? (wad.readRecords(lump.index, record) as unknown as Array<Record<string, number | string>>) : [];
     };
     records[m.name.toUpperCase()] = { Sector: read("Sector"), Thing: read("Thing") };
+    fingerprints[m.name.toUpperCase()] = sectorFingerprints(wad, m);
   }
-  return { mapNames, records };
+  return { mapNames, records, fingerprints };
 }
 
 export interface PatchForOptions {
@@ -307,12 +313,17 @@ function buildPatchFor(bytes: Uint8Array, o: PatchForOptions): fc.Arbitrary<Reco
         ),
         fc.constantFrom(...pinMaps).chain((map) => {
           const n = p.records[map.toUpperCase()]![record].length;
+          // Sector 的 pin 约一半带输入里该扇区的真实指纹（可能 EXACT，也可能因相近的扇区而 CONFLICT_AMBIGUOUS）；Thing 不支持指纹
+          const fps = record === "Sector" ? p.fingerprints[map.toUpperCase()]! : [];
           return fc
             .record({
               expectedIndex: n > 0 ? fc.integer({ min: 0, max: n - 1 }) : fc.constant(0),
-              fingerprint: fc.option(fc.record({ tag: fc.integer({ min: 0, max: 99 }), note: fc.string({ maxLength: 4 }) }), { nil: undefined }),
+              withFingerprint: fc.boolean(),
             })
-            .map(({ expectedIndex, fingerprint }) => ({ record, pin: { map, expectedIndex, ...(fingerprint ? { fingerprint } : {}) } }));
+            .map(({ expectedIndex, withFingerprint }) => {
+              const fingerprint = withFingerprint ? fps[expectedIndex] : undefined;
+              return { record, pin: { map, expectedIndex, ...(fingerprint ? { fingerprint: JSON.parse(JSON.stringify(fingerprint)) as unknown } : {}) } };
+            });
         }),
         fc.constant({ record, all: true as const }),
       );

@@ -6,21 +6,32 @@ import { setOnlyPatchFor } from "./arbitraries.ts";
 import { Hits, RUNS, SAMPLES, sameBytes } from "./patch-helpers.ts";
 
 interface Op {
-  select: { record: string; where?: Record<string, unknown> };
+  select: { record: string; where?: Record<string, unknown>; pin?: { fingerprint?: unknown } };
   change: Record<string, { set?: unknown }>;
 }
 
+/** Sector 指纹读取的字段（几何中心和线段数来自不可写的 Lump）。 */
+const FINGERPRINT_FIELDS = ["tag", "floorpic", "ceilingpic", "floorheight", "ceilingheight"];
+
 /**
- * 前提：没有操作的 where 读取另一个操作写入的 (record, field)。
- * 否则第二次应用时选择器按 O 的值求值，会选中第一次没选中的记录（见 regression.test.ts 的 P3-1）。
+ * 前提：没有选择器读取补丁写入的 (record, field)。
+ * - where 读取另一个操作写入的字段：第二次应用时选择器按 O 的值求值，会选中第一次没选中的记录（见 regression.test.ts 的 P3-1）。
+ * - 带指纹的 pin 读取任一操作（包括它自己）写入的指纹字段：第二次应用时记录已不再符合指纹，pin 解析为冲突（P3-3）。
  */
 function noCrossOperationReads(patch: Record<string, unknown>): boolean {
   const ops = patch.operations as Op[];
-  return ops.every((reader, i) =>
+  const whereOk = ops.every((reader, i) =>
     Object.keys(reader.select.where ?? {}).every((field) =>
       ops.every((writer, j) => j === i || writer.select.record !== reader.select.record || !(field in writer.change)),
     ),
   );
+  const pinOk = ops.every(
+    (reader) =>
+      reader.select.record !== "Sector" ||
+      reader.select.pin?.fingerprint === undefined ||
+      ops.every((writer) => writer.select.record !== "Sector" || FINGERPRINT_FIELDS.every((f) => !(f in writer.change))),
+  );
+  return whereOk && pinOk;
 }
 
 /** 补丁是否把某个 Sector.special 设成非零值：第二次应用时这个值是"旧值非零"，受 sector-special-nonzero 保护（P3-2）。 */

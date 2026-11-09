@@ -17,8 +17,9 @@ describe("@necrohex/core 公开入口", () => {
     }
   });
 
-  it("导出值恰为 Span 工具和五个引擎函数", () => {
-    expect(Object.keys(pub).sort()).toEqual([...SPAN_TOOLS, ...ENGINE].sort());
+  it("导出值恰为 Span 工具、五个引擎函数和重定位阈值", () => {
+    expect(Object.keys(pub).sort()).toEqual([...SPAN_TOOLS, ...ENGINE, "RELOCATION_THRESHOLDS"].sort());
+    expect(Object.isFrozen(pub.RELOCATION_THRESHOLDS)).toBe(true);
     for (const name of ENGINE) expect(typeof (pub as Record<string, unknown>)[name], name).toBe("function");
   });
 

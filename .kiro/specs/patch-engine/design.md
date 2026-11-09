@@ -221,7 +221,7 @@ interface PatchIssue {
 
 ### Property 3: set 幂等
 
-*For any* B 和只含 `set` 的 P(且没有操作的 `where` 读取另一个操作写入的字段),应用得到 O 后,以 `allowReapply` 再应用仍得 O;P 把某个 `Sector.special` 设为非零值且未 opt-in 时,再应用只允许因 `sector-special-nonzero` 报 `PROTECTED`,opt-in 后仍得 O。
+*For any* B 和只含 `set` 的 P(且没有操作的 `where` 读取另一个操作写入的字段;重定位实现后又加上:没有带 `fingerprint` 的 pin 读取任一操作写入的指纹字段,见回归用例 P3-3),应用得到 O 后,以 `allowReapply` 再应用仍得 O;P 把某个 `Sector.special` 设为非零值且未 opt-in 时,再应用只允许因 `sector-special-nonzero` 报 `PROTECTED`,opt-in 后仍得 O。
 
 两个前提来自属性测试找到的反例,见 `regression.test.ts` 的 P3-1、P3-2:选择器按当前输入求值,跨操作读取时第二次会选中新记录;第一次写入的非零 `special` 在第二次是"旧值非零"。
 
@@ -236,6 +236,8 @@ interface PatchIssue {
 ### Property 5: pin 只按下标
 
 *For any* 作用域、`expectedIndex`、`fingerprint`:下标在范围内时恰好选中该记录,selection 为 `EXACT`、`fingerprintChecked: false`;越界或作用域不存在为 `CONFLICT_MISSING`;`dupMapWad` 上为 `CONFLICT_AMBIGUOUS`。换 `fingerprint` 不改变匹配,但改变 Patch_Hash。
+
+> 2026-11-09 实现 pin 重定位(docs/design.md 第 7 节,没有单独的 Spec)后,本属性只适用于不带 `fingerprint` 的 pin。带 `fingerprint` 的 pin 由指纹决定匹配,形状不对为 `INVALID_PATCH`;`Selection` 增加 `RELOCATED` 和带 `score` 的 `EXACT`。见 docs/decisions.md 的"pin 重定位的实现选择"和 `test/patch-relocate.test.ts`。
 
 **Validates: Requirements 2.6, 2.7, 2.8, 1.3**
 

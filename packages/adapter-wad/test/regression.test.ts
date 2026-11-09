@@ -5,6 +5,7 @@
  * patch-engine 的用例以 P<属性编号>-<序号> 开头，对应 .kiro/specs/patch-engine/design.md 的 Correctness Properties；
  * 另有 PE- 开头的固定例子（tasks.md 7.15 列出的必备用例）。
  * Property 16（SHA-256 差分，任务 1.3）和 Property 1、2、5–15 在实现过程中没有找到反例。
+ * P3-3 是实现 pin 重定位（docs/design.md 第 7 节，没有单独的 Spec）之后 Property 3 找到的反例。
  */
 import { describe, expect, it } from "vitest";
 import * as core from "@necrohex/core";
@@ -371,6 +372,35 @@ describe("P3-2 再应用设置了非零 special 的补丁会被 sector-special-n
     const optIn = applyPatch(first.output!, { ...patch, allowProtected: ["sector-special-nonzero"] }, wadAdapter, { allowReapply: true });
     expect(optIn.ok).toBe(true);
     expect(equalBytes(optIn.output!, first.output!)).toBe(true);
+  });
+});
+
+describe("P3-3 带指纹的 pin 改了自己指纹里的字段，再应用时不再符合指纹", () => {
+  // Property 3 在生成样本上找到的反例（缩减后）：E1M1 #1 的 pin 带该扇区的真实指纹，同一操作把 ceilingheight 和 tag 改掉。
+  // 第一次应用 EXACT；对输出再应用时，扇区的 tag 和高度已与指纹不同，相似度 0.8 低于 0.85，按规则为 CONFLICT_AMBIGUOUS。
+  // 这是指纹语义，不是缺陷，引擎不放宽；Property 3 的前提加上"带指纹的 pin 不读取补丁写入的指纹字段"。
+  const raw = sector([0x41, 0]);
+  const v = new DataView(raw.buffer);
+  v.setInt16(2, 128, true); // ceilingheight
+  v.setInt16(24, 7, true); // tag
+  const bytes = oneMap(raw);
+  const fingerprint = wadAdapter.open(bytes).fingerprints!.compute({ scope: "MAP01", record: "Sector", index: 0 });
+  const patch = patchOf([
+    { id: "op0", select: { record: "Sector", pin: { map: "MAP01", expectedIndex: 0, fingerprint } }, change: { ceilingheight: { set: 256 }, tag: { set: 0 } } },
+  ]);
+
+  it("指纹没有几何数据（没有线段）", () => {
+    expect(fingerprint).toEqual({ tag: 7, floorpic: "A", ceilingpic: "", heights: [0, 128], centroid: null, lineCount: 0 });
+  });
+
+  it("第一次 EXACT；再应用为 CONFLICT_AMBIGUOUS，候选只有它自己，相似度 0.8", () => {
+    const first = applyPatch(bytes, patch, wadAdapter);
+    expect(first.ok).toBe(true);
+    expect(first.pins).toEqual([expect.objectContaining({ result: "EXACT", index: 0, score: 1, fingerprintChecked: true })]);
+    const second = applyPatch(first.output!, patch, wadAdapter, { allowReapply: true });
+    expect(second.ok).toBe(false);
+    expect(second.output).toBeUndefined();
+    expect(second.issues).toEqual([expect.objectContaining({ code: "CONFLICT_AMBIGUOUS", operationId: "op0", candidates: [{ index: 0, score: 0.8 }] })]);
   });
 });
 

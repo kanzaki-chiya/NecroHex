@@ -20,8 +20,6 @@ const HASH = /^sha256:[0-9a-f]{64}$/;
 
 /** 复制一条改动，得到只含 JSON 原生类型、与引擎内部不共享引用的对象。 */
 export function copyChange(c: PlannedChange): PlannedChange {
-  const selection: Selection =
-    c.selection.kind === "EXACT" ? { kind: "EXACT", expectedIndex: c.selection.expectedIndex, fingerprintChecked: false } : { kind: c.selection.kind };
   return {
     operationId: c.operationId,
     scope: c.scope,
@@ -31,9 +29,15 @@ export function copyChange(c: PlannedChange): PlannedChange {
     oldValue: c.oldValue,
     newValue: c.newValue,
     span: { start: c.span.start, end: c.span.end },
-    selection,
+    selection: copySelection(c.selection),
     unchanged: c.unchanged,
   };
+}
+
+function copySelection(s: Selection): Selection {
+  if (s.kind === "WHERE" || s.kind === "ALL") return { kind: s.kind };
+  if (s.fingerprintChecked) return { kind: s.kind, expectedIndex: s.expectedIndex, fingerprintChecked: true, score: s.score };
+  return { kind: "EXACT", expectedIndex: s.expectedIndex, fingerprintChecked: false };
 }
 
 export function makeReceipt(fields: Omit<Receipt, "receiptVersion" | "entries" | "allowedProtections"> & {
@@ -140,10 +144,20 @@ function checkEntry(
     const sp = path + "/selection";
     if (!isPlainObject(s)) bad("selection must be an object", sp);
     else if (s.kind === "WHERE" || s.kind === "ALL") exactKeys(s, ["kind"], sp);
-    else if (s.kind === "EXACT") {
-      exactKeys(s, ["kind", "expectedIndex", "fingerprintChecked"], sp);
+    else if (s.kind === "EXACT" || s.kind === "RELOCATED") {
+      // 校验过指纹的选择带 score；RELOCATED 一定校验过指纹，下标也一定与 expectedIndex 不同
+      const checked = s.fingerprintChecked === true;
+      exactKeys(s, checked ? ["kind", "expectedIndex", "fingerprintChecked", "score"] : ["kind", "expectedIndex", "fingerprintChecked"], sp);
       if (Object.hasOwn(s, "expectedIndex") && !isIndex(s.expectedIndex)) bad("expectedIndex must be a non-negative integer", sp + "/expectedIndex");
-      if (Object.hasOwn(s, "fingerprintChecked") && s.fingerprintChecked !== false) bad("fingerprintChecked must be false", sp + "/fingerprintChecked");
-    } else bad("selection.kind must be WHERE, ALL or EXACT", sp + "/kind");
+      if (Object.hasOwn(s, "fingerprintChecked") && typeof s.fingerprintChecked !== "boolean") bad("fingerprintChecked must be a boolean", sp + "/fingerprintChecked");
+      if (s.kind === "RELOCATED" && s.fingerprintChecked === false) bad("a RELOCATED selection must have fingerprintChecked true", sp + "/fingerprintChecked");
+      if (checked && Object.hasOwn(s, "score") && !(typeof s.score === "number" && Number.isFinite(s.score) && s.score >= 0 && s.score <= 1)) {
+        bad("score must be a number between 0 and 1", sp + "/score");
+      }
+      if (Object.hasOwn(s, "expectedIndex") && isPlainObject(e) && Object.hasOwn(e, "index")) {
+        if (s.kind === "EXACT" && e.index !== s.expectedIndex) bad("an EXACT selection must have index equal to expectedIndex", sp + "/expectedIndex");
+        if (s.kind === "RELOCATED" && e.index === s.expectedIndex) bad("a RELOCATED selection must have index different from expectedIndex", sp + "/expectedIndex");
+      }
+    } else bad("selection.kind must be WHERE, ALL, EXACT or RELOCATED", sp + "/kind");
   }
 }

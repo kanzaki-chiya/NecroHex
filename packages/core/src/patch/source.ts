@@ -39,6 +39,35 @@ export interface RecordReader {
   recordCount(scope: string, record: string): number;
   readField(loc: RecordLocator, field: string): FieldValue;
   fieldSpan(loc: RecordLocator, field: string): Span;
+  /** pin 的语义指纹。没有时，带 fingerprint 的 pin 一律为 INVALID_PATCH。 */
+  readonly fingerprints?: RecordFingerprints;
+}
+
+/** fingerprint 校验问题。path 是相对 pin.fingerprint 的 JSON Pointer。 */
+export interface FingerprintProblem {
+  readonly path: string;
+  readonly message: string;
+}
+
+/**
+ * 格式相关的语义指纹。core 不解释指纹的内容，只按相似度分级（见 relocate.ts）。
+ * 相似度按输入值计算，与补丁的写入无关。
+ */
+export interface RecordFingerprints {
+  /** 支持指纹的记录类型。 */
+  readonly records: readonly string[];
+  /** 校验 pin.fingerprint 的形状；空数组表示合法。只会对 records 中的记录类型调用。 */
+  validate(record: string, fingerprint: unknown): readonly FingerprintProblem[];
+  /** 记录当前的指纹（JSON 值），用于编写补丁和报告。 */
+  compute(loc: RecordLocator): unknown;
+  /** 作用域内每条记录与 expected 的相似度，数组下标即记录下标，取值在 [0, 1]，1 表示完全一致。 */
+  scores(scope: string, record: string, expected: unknown): readonly number[];
+}
+
+/** 一个重定位候选：记录下标和相似度（保留 4 位小数）。 */
+export interface RelocationCandidate {
+  readonly index: number;
+  readonly score: number;
 }
 
 /** 一项检查的说明。name 在同一 adapter 内唯一。 */
@@ -77,10 +106,37 @@ export interface RecordSource extends RecordReader {
   serialize(): Uint8Array;
 }
 
+/**
+ * 选中一条记录的方式。pin 没有 fingerprint 时只能按下标选中，fingerprintChecked 为 false；
+ * 有 fingerprint 时 fingerprintChecked 为 true，score 是被选中记录的相似度。
+ */
 export type Selection =
   | { readonly kind: "WHERE" }
   | { readonly kind: "ALL" }
-  | { readonly kind: "EXACT"; readonly expectedIndex: number; readonly fingerprintChecked: false };
+  | { readonly kind: "EXACT"; readonly expectedIndex: number; readonly fingerprintChecked: false }
+  | { readonly kind: "EXACT"; readonly expectedIndex: number; readonly fingerprintChecked: true; readonly score: number }
+  | { readonly kind: "RELOCATED"; readonly expectedIndex: number; readonly fingerprintChecked: true; readonly score: number };
+
+/** 一个 pin 的解析结果。 */
+export interface PinResolution {
+  readonly operationId: string;
+  readonly map: string;
+  readonly record: string;
+  readonly expectedIndex: number;
+  readonly result: "EXACT" | "RELOCATED" | "CONFLICT_AMBIGUOUS" | "CONFLICT_MISSING";
+  /** 作用域 id；地图不存在或重名时没有。 */
+  readonly scope?: string;
+  /** 实际选中的下标；冲突时没有。 */
+  readonly index?: number;
+  readonly fingerprintChecked: boolean;
+  /** 选中记录的相似度；没有校验指纹或冲突时没有。 */
+  readonly score?: number;
+  /** 相似度达到下限的候选，按相似度降序、下标升序，最多 10 个。 */
+  readonly candidates: readonly RelocationCandidate[];
+  /** 达到下限的候选总数。 */
+  readonly candidateCount: number;
+  readonly message: string;
+}
 
 export interface ProposedChange {
   readonly operationId: string;
@@ -151,4 +207,6 @@ export interface PatchIssue {
   readonly field?: string;
   readonly hook?: string;
   readonly reason?: string;
+  /** CONFLICT_AMBIGUOUS、CONFLICT_MISSING 的重定位候选。 */
+  readonly candidates?: readonly RelocationCandidate[];
 }

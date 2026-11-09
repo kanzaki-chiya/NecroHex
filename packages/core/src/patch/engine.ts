@@ -13,6 +13,7 @@ import { evaluateSelectors } from "./select.ts";
 import type {
   CheckResult,
   PatchIssue,
+  PinResolution,
   PlannedChange,
   ProposedChange,
   RecordAdapter,
@@ -20,7 +21,7 @@ import type {
   RecordReader,
   RecordSource,
 } from "./source.ts";
-import { checkPatchAgainstAdapter, validatePatchSchema, validatePatchStructure, type Patch } from "./validate.ts";
+import { checkPatchAgainstAdapter, validatePatchSchema, validatePatchStructure, validatePinFingerprints, type Patch } from "./validate.ts";
 
 export interface ApplyOptions {
   /** 跳过重复应用检测。 */
@@ -35,6 +36,8 @@ export interface PlanResult {
   warnings: PatchIssue[];
   matches: { operationId: string; count: number }[];
   changes: PlannedChange[];
+  /** 每个 pin 操作的解析结果（EXACT、RELOCATED 或冲突），按操作顺序。补丁在求值选择器之前就被拒绝时为空。 */
+  pins: PinResolution[];
   /** changes 中 unchanged === false 的条目数。 */
   changedCount: number;
   /** 本次运行做过的检查及结果。补丁在打开 Record_Source 之前就被拒绝时为空。只说明检查过什么，不说明地图可以通关。 */
@@ -81,7 +84,7 @@ function describe(loc: RecordLocator, field: string): string {
 }
 
 function failed(issues: PatchIssue[]): ApplyResult {
-  return { ok: false, issues, warnings: [], matches: [], changes: [], changedCount: 0, checks: [] };
+  return { ok: false, issues, warnings: [], matches: [], changes: [], pins: [], changedCount: 0, checks: [] };
 }
 
 const ENGINE_CHECKS: ReadonlyArray<{ name: string; description: string; failed: (i: PatchIssue) => boolean }> = [
@@ -155,6 +158,8 @@ function run(input: Uint8Array, rawPatch: unknown, adapter: RecordAdapter, optio
   const source = adapter.open(input);
   const schemaIssues = validatePatchSchema(patch, source.schema);
   if (schemaIssues.length > 0) return failed(schemaIssues);
+  const fingerprintIssues = validatePinFingerprints(patch, source.fingerprints);
+  if (fingerprintIssues.length > 0) return failed(fingerprintIssues);
 
   // 3. 回执与重复应用检测
   if (options.receipts !== undefined) {
@@ -325,7 +330,7 @@ function run(input: Uint8Array, rawPatch: unknown, adapter: RecordAdapter, optio
 
   const changedCount = changes.filter((c) => !c.unchanged).length;
   const checks = summarizeChecks(source, adapter, issues, warnings, allowedProtections, skip.size > 0);
-  const result: ApplyResult = { ok: issues.length === 0, issues, warnings, matches, changes, changedCount, checks };
+  const result: ApplyResult = { ok: issues.length === 0, issues, warnings, matches, changes, pins: selected.pins, changedCount, checks };
 
   // 11. 无问题且非干跑：输出字节和回执
   if (!result.ok || dryRun) return result;

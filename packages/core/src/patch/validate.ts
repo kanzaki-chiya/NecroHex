@@ -6,7 +6,7 @@
  * 每一段收集本段全部问题；任一段有问题，流水线立即返回。
  */
 import { canonicalJson } from "../hash.ts";
-import type { FieldKind, FieldValue, PatchIssue, RecordAdapter, RecordSchema } from "./source.ts";
+import type { FieldKind, FieldValue, PatchIssue, RecordAdapter, RecordFingerprints, RecordSchema } from "./source.ts";
 
 export type ConditionOp = "eq" | "ne" | "lt" | "lte" | "gt" | "gte";
 export type Condition = Partial<Record<ConditionOp, FieldValue>> & { in?: FieldValue[] };
@@ -310,6 +310,26 @@ export function checkPatchAgainstAdapter(patch: Patch, adapter: RecordAdapter): 
 
 function valueMatchesKind(v: FieldValue, kind: FieldKind): boolean {
   return kind === "int" ? typeof v === "number" : kind === "name" ? typeof v === "string" : false;
+}
+
+/**
+ * 第 3 段的一部分：pin.fingerprint 交给 adapter 校验形状。
+ * adapter 不提供指纹，或该记录类型不支持指纹时，带 fingerprint 的 pin 为 INVALID_PATCH，不忽略。
+ */
+export function validatePinFingerprints(patch: Patch, fingerprints: RecordFingerprints | undefined): PatchIssue[] {
+  const c = new Collector();
+  patch.operations.forEach((op, n) => {
+    if (!("pin" in op.select) || op.select.pin.fingerprint === undefined) return;
+    const base = pointer("operations", n, "select", "pin", "fingerprint");
+    const { record } = op.select;
+    if (!fingerprints || !fingerprints.records.includes(record)) {
+      const supported = fingerprints && fingerprints.records.length > 0 ? `; supported: ${fingerprints.records.join(", ")}` : "";
+      c.add(`${record} records do not support fingerprints${supported}`, base, op.id);
+      return;
+    }
+    for (const p of fingerprints.validate(record, op.select.pin.fingerprint)) c.add(`fingerprint: ${p.message}`, base + p.path, op.id);
+  });
+  return c.issues;
 }
 
 /** 第 3 段：打开 Record_Source 之后按 schema 校验。 */

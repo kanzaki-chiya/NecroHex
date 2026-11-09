@@ -9,6 +9,7 @@ import type {
   FieldKind,
   FieldValue,
   RecordAdapter,
+  RecordFingerprints,
   RecordLocator,
   RecordSchema,
   RecordScope,
@@ -20,6 +21,14 @@ import type {
 } from "@necrohex/core";
 import { registerRestorer, type RestorableRecordSource } from "@necrohex/core/internal";
 import { encodeField, type FieldLayout } from "./field-codec.ts";
+import {
+  sectorFingerprints,
+  sectorFingerprintScore,
+  sectorGeometry,
+  validateSectorFingerprint,
+  type SectorFingerprint,
+  type SectorGeometry,
+} from "./fingerprint.ts";
 import { RECORD_LAYOUTS, type RecordName } from "./generated/records.ts";
 import { WAD_HOOKS, WadHookContext } from "./guardrails.ts";
 import { restoreWadField } from "./restore-channel.ts";
@@ -220,8 +229,36 @@ function build(input: Uint8Array, options: BuildOptions): { source: RecordSource
     return out;
   };
 
+  // 边界线段和几何中心只依赖不可写的 LINEDEFS、SIDEDEFS、VERTEXES，可以按作用域缓存；扇区字段每次重新读
+  const geometry = new Map<string, SectorGeometry[]>();
+  const fingerprintsOf = (scope: string): SectorFingerprint[] => {
+    const m = scopeOf(scope);
+    let g = geometry.get(scope);
+    if (!g) geometry.set(scope, (g = sectorGeometry(wad, m)));
+    return sectorFingerprints(wad, m, g);
+  };
+  const onlySector = (record: string): void => {
+    if (record !== "Sector") throw new RangeError(`${record} records do not support fingerprints`);
+  };
+  const fingerprints: RecordFingerprints = Object.freeze({
+    records: Object.freeze(["Sector"]),
+    validate: (record: string, fp: unknown) => (onlySector(record), validateSectorFingerprint(fp)),
+    compute: (loc: RecordLocator): unknown => {
+      onlySector(loc.record);
+      const all = fingerprintsOf(loc.scope);
+      if (!Number.isSafeInteger(loc.index) || loc.index < 0 || loc.index >= all.length) throw new RangeError(`${loc.scope} has no Sector #${loc.index}`);
+      return JSON.parse(JSON.stringify(all[loc.index])) as unknown;
+    },
+    scores: (scope: string, record: string, expected: unknown): number[] => {
+      onlySector(record);
+      if (validateSectorFingerprint(expected).length > 0) throw new TypeError("invalid Sector fingerprint");
+      return fingerprintsOf(scope).map((fp) => sectorFingerprintScore(expected as SectorFingerprint, fp));
+    },
+  });
+
   const source: RecordSource = {
     schema: SCHEMA,
+    fingerprints,
     structuralChecks: STRUCTURAL_CHECKS,
     hookContext: new WadHookContext(wad, byId),
     checkWrites,
