@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "necrohex": {
+      "command": "node",
+      "args": ["packages/mcp-server/src/main.ts"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
