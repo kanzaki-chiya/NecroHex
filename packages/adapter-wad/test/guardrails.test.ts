@@ -290,6 +290,9 @@ describe("Freedoom 夹具", () => {
     expect(r.checks.every((c) => c.status === "passed")).toBe(true);
     // MAP01 玩家出生点所在的 #0 扇区改为慢速频闪；MAP02 #0 的相邻扇区亮度与它相同，频闪暗相位会降到 0，所以不改
     expect(r.changes).toContainEqual(expect.objectContaining({ scope: "MAP01", record: "Sector", index: 0, field: "special", newValue: 3 }));
+    // 这个 pin 带指纹，在夹具上按指纹校验通过
+    expect(r.pins).toEqual([expect.objectContaining({ operationId: "strobe-start-map01", result: "EXACT", index: 0, fingerprintChecked: true, score: 1 })]);
+    expect(r.receipt!.entries.find((e) => e.operationId === "strobe-start-map01")!.selection).toEqual({ kind: "EXACT", expectedIndex: 0, fingerprintChecked: true, score: 1 });
     expect(r.changes.some((c) => c.scope === "MAP02" && c.record === "Sector" && c.index === 0 && c.field === "special")).toBe(false);
     // 全部扇区按同一比例变暗，亮度顺序不反转
     const lights = r.changes.filter((c) => c.operationId === "dim-lights");

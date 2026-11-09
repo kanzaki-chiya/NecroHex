@@ -40,6 +40,7 @@ for (const m of r.matches) {
   const changed = r.changes.filter((c) => c.operationId === m.operationId && !c.unchanged).length;
   console.log(`operation ${m.operationId}: ${m.count} records matched, ${changed} fields changed`);
 }
+for (const p of r.pins) console.log(`pin ${p.operationId}: ${p.result}${p.fingerprintChecked ? "" : " (fingerprint not checked)"} - ${p.message}`);
 for (const w of r.warnings) console.log(`WARNING ${w.message}`);
 for (const i of r.issues) {
   const where = i.locator ? ` [${i.locator.scope} ${i.locator.record} #${i.locator.index} ${i.field ?? ""}]` : "";

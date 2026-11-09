@@ -31,7 +31,21 @@
     },
     {
       "id": "strobe-start-map01",
-      "select": { "record": "Sector", "pin": { "map": "MAP01", "expectedIndex": 0 } },
+      "select": {
+        "record": "Sector",
+        "pin": {
+          "map": "MAP01",
+          "expectedIndex": 0,
+          "fingerprint": {
+            "tag": 0,
+            "floorpic": "SLIME14",
+            "ceilingpic": "FLOOR5_2",
+            "heights": [0, 128],
+            "centroid": [-143, -104],
+            "lineCount": 16
+          }
+        }
+      },
       "change": { "special": { "set": 3 } }
     },
     {
