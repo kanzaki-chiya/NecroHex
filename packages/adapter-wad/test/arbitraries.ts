@@ -146,3 +146,260 @@ export function fieldWrite(record: "Sector" | "Thing", types?: readonly FieldTyp
     .constantFrom(...fields)
     .chain(([field, layout]) => validValue(layout).map((value): FieldWrite => ({ record, field, value })));
 }
+
+// ---------------------------------------------------------------------------
+// patch-engine 的生成器
+// ---------------------------------------------------------------------------
+
+/** 可写记录及其单值字段，由 RECORD_LAYOUTS 推导。 */
+const WRITABLE_FIELDS: ReadonlyArray<{ record: "Sector" | "Thing"; field: string; layout: FieldLayout }> = (["Sector", "Thing"] as const).flatMap((record) =>
+  Object.entries(RECORD_LAYOUTS[record].fields as Record<string, FieldLayout>)
+    .filter(([, l]) => l.count === 1)
+    .map(([field, layout]) => ({ record, field, layout })),
+);
+
+/** 生成补丁时需要的输入概况：Doom 地图名（去重）和各记录的当前值。 */
+export interface WadProfile {
+  readonly mapNames: string[];
+  /** 地图名（大写）→ 记录 → 当前记录值。同名地图只取第一张。 */
+  readonly records: Record<string, Record<"Sector" | "Thing", Array<Record<string, number | string>>>>;
+}
+
+const profiles = new WeakMap<Uint8Array, WadProfile>();
+
+/** 按数组实例缓存：同一个夹具数组只解析一次。调用方不得修改传入的数组。 */
+export function profile(bytes: Uint8Array): WadProfile {
+  const cached = profiles.get(bytes);
+  if (cached) return cached;
+  const p = buildProfile(bytes);
+  profiles.set(bytes, p);
+  return p;
+}
+
+/** 只把 ASCII A–Z 转小写。 */
+export function asciiLower(s: string): string {
+  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
+function buildProfile(bytes: Uint8Array): WadProfile {
+  const wad = WadFile.parse(bytes);
+  const records: WadProfile["records"] = {};
+  const mapNames: string[] = [];
+  for (const m of wad.maps) {
+    if (m.format !== "doom" || records[m.name.toUpperCase()]) continue;
+    mapNames.push(m.name);
+    const read = (record: "Sector" | "Thing") => {
+      const lump = wad.mapLump(m, RECORD_LAYOUTS[record].lump);
+      return lump ? (wad.readRecords(lump.index, record) as unknown as Array<Record<string, number | string>>) : [];
+    };
+    records[m.name.toUpperCase()] = { Sector: read("Sector"), Thing: read("Thing") };
+  }
+  return { mapNames, records };
+}
+
+export interface PatchForOptions {
+  /** 只用 set 算子。 */
+  readonly setOnly?: boolean;
+  /**
+   * 不主动生成越界值、超长名称和可能越界的无 clamp scale。
+   * 取自输入的旧名称仍可能不是合法新值（例如生成样本里的不可打印字节），所以不保证应用成功。
+   */
+  readonly validOnly?: boolean;
+}
+
+/** 当前值样本：从某张地图的某条记录取值，没有记录时为 undefined。 */
+const sampleCache = new WeakMap<WadProfile, Map<string, fc.Arbitrary<number | string | undefined>>>();
+
+function sampleValue(p: WadProfile, record: "Sector" | "Thing", field: string): fc.Arbitrary<number | string | undefined> {
+  let byField = sampleCache.get(p);
+  if (!byField) sampleCache.set(p, (byField = new Map()));
+  const k = `${record}.${field}`;
+  const hit = byField.get(k);
+  if (hit) return hit;
+  // 去重：Freedoom 夹具有上千条记录，大多数字段只有几十种取值
+  const all = [...new Set(p.mapNames.flatMap((m) => p.records[m.toUpperCase()]![record].map((r) => r[field]!)))];
+  const arb = all.length === 0 ? fc.constant(undefined) : fc.constantFrom(...all);
+  byField.set(k, arb);
+  return arb;
+}
+
+function newValue(p: WadProfile, record: "Sector" | "Thing", field: string, layout: FieldLayout, validOnly: boolean): fc.Arbitrary<number | string> {
+  const fresh = validValue(layout) as fc.Arbitrary<number | string>;
+  const bad: fc.Arbitrary<number | string> =
+    layout.type === "name8" ? fc.constantFrom("TOOLONGNAME", "") : layout.type === "int16" ? fc.constantFrom(40000, -40000) : fc.constantFrom(-1, 70000);
+  // 约一半取某条记录的当前值，使 unchanged: true 的条目经常出现
+  const fallback = layout.type === "name8" ? "FLAT1" : 0;
+  const old = sampleValue(p, record, field).map((v) => v ?? fallback);
+  const choices: Array<{ weight: number; arbitrary: fc.Arbitrary<number | string> }> = [
+    { weight: 10, arbitrary: old },
+    { weight: 9, arbitrary: fresh },
+  ];
+  if (!validOnly) choices.push({ weight: 1, arbitrary: bad });
+  return fc.oneof(...choices);
+}
+
+function changeFor(p: WadProfile, record: "Sector" | "Thing", field: string, layout: FieldLayout, o: PatchForOptions): fc.Arbitrary<Record<string, unknown>> {
+  const set = newValue(p, record, field, layout, o.validOnly ?? false).map((v) => ({ set: v }));
+  if (o.setOnly || layout.type === "name8") return set;
+  const [lo, hi] = layout.type === "int16" ? [-32768, 32767] : [0, 65535];
+  const bounds = fc.tuple(fc.integer({ min: lo, max: hi }), fc.integer({ min: lo, max: hi })).map(([a, b]) => (a <= b ? [a, b] : [b, a]));
+  const scale = fc.constantFrom(0, 0.5, 1, 1.5, 2, -1, 0.25);
+  return fc.oneof(
+    set,
+    fc.record({ scale, clamp: bounds }),
+    o.validOnly ? fc.record({ scale: fc.constantFrom(0, 0.5, 1, 0.25), clamp: bounds }) : fc.record({ scale }),
+    fc.record({ clamp: bounds }),
+  );
+}
+
+function conditionFor(p: WadProfile, record: "Sector" | "Thing", field: string, layout: FieldLayout): fc.Arbitrary<Record<string, unknown>> {
+  const v = sampleValue(p, record, field);
+  if (layout.type === "name8") {
+    const name = fc.oneof(v.map((x) => (typeof x === "string" ? x : "FLAT1")), validName8);
+    // 名称条件随机改大小写，结果不应变化
+    const cased = name.chain((s) => fc.boolean().map((lower) => (lower ? asciiLower(s) : s)));
+    return fc.oneof(
+      cased.map((s) => ({ eq: s })),
+      cased.map((s) => ({ ne: s })),
+      fc.array(cased, { minLength: 1, maxLength: 3 }).map((list) => ({ in: list })),
+    );
+  }
+  const num = fc.oneof(v.map((x) => (typeof x === "number" ? x : 0)), fc.integer({ min: -200, max: 400 }));
+  return fc.oneof(
+    ...(["eq", "ne", "lt", "lte", "gt", "gte"] as const).map((op) => num.map((n) => ({ [op]: n }))),
+    fc.tuple(num, num).map(([a, b]) => ({ gte: Math.min(a, b), lte: Math.max(a, b) })),
+    fc.array(num, { minLength: 1, maxLength: 3 }).map((list) => ({ in: list })),
+  );
+}
+
+/**
+ * 针对给定输入生成补丁：where / pin / all 三种选择器，约一半 set 取旧值，少量越界值（validOnly 时没有），
+ * 随机带 allowProtected。后面的操作去掉前面操作已经写过的 (record, field)，所以不会出现 CONFLICT_FIELD。
+ */
+const patchArbs = new WeakMap<Uint8Array, Map<string, fc.Arbitrary<Record<string, unknown>>>>();
+
+export function patchFor(bytes: Uint8Array, o: PatchForOptions = {}): fc.Arbitrary<Record<string, unknown>> {
+  // 按数组实例和选项缓存，夹具上不必每次运行都重建生成器
+  const k = `${o.setOnly ?? false}/${o.validOnly ?? false}`;
+  let byOpts = patchArbs.get(bytes);
+  if (!byOpts) patchArbs.set(bytes, (byOpts = new Map()));
+  const hit = byOpts.get(k);
+  if (hit) return hit;
+  const arb = buildPatchFor(bytes, o);
+  byOpts.set(k, arb);
+  return arb;
+}
+
+function buildPatchFor(bytes: Uint8Array, o: PatchForOptions): fc.Arbitrary<Record<string, unknown>> {
+  const p = profile(bytes);
+  if (p.mapNames.length === 0) throw new Error("patchFor needs a WAD with at least one Doom map");
+  const maps = fc.oneof(fc.constant<"*" | string[]>("*"), fc.subarray(p.mapNames, { minLength: 1 }));
+  const operation = (targetMaps: "*" | string[]) =>
+    fc.constantFrom<"Sector" | "Thing">("Sector", "Thing").chain((record) => {
+      const fields = WRITABLE_FIELDS.filter((f) => f.record === record);
+      const pinMaps = targetMaps === "*" ? p.mapNames : targetMaps;
+      const select = fc.oneof(
+        fc.subarray(fields, { minLength: 1, maxLength: 2 }).chain((fs) =>
+          fc.tuple(...fs.map((f) => conditionFor(p, record, f.field, f.layout))).map((conds) => ({
+            record,
+            where: Object.fromEntries(fs.map((f, i) => [f.field, conds[i]])),
+          })),
+        ),
+        fc.constantFrom(...pinMaps).chain((map) => {
+          const n = p.records[map.toUpperCase()]![record].length;
+          return fc
+            .record({
+              expectedIndex: n > 0 ? fc.integer({ min: 0, max: n - 1 }) : fc.constant(0),
+              fingerprint: fc.option(fc.record({ tag: fc.integer({ min: 0, max: 99 }), note: fc.string({ maxLength: 4 }) }), { nil: undefined }),
+            })
+            .map(({ expectedIndex, fingerprint }) => ({ record, pin: { map, expectedIndex, ...(fingerprint ? { fingerprint } : {}) } }));
+        }),
+        fc.constant({ record, all: true as const }),
+      );
+      const change = fc
+        .subarray(fields, { minLength: 1, maxLength: 3 })
+        .chain((fs) => fc.tuple(...fs.map((f) => changeFor(p, record, f.field, f.layout, o))).map((cs) => fs.map((f, i) => [f.field, cs[i]!] as const)));
+      return fc.record({ select, change });
+    });
+  return maps.chain((targetMaps) =>
+    fc
+      .record({
+        ops: fc.array(operation(targetMaps), { minLength: 1, maxLength: 3 }),
+        allowProtected: fc.boolean(),
+        name: fc.constantFrom("dim", "Haunted House", "Ünïcode 😀"),
+      })
+      .map(({ ops, allowProtected, name }) => {
+        const used = new Set<string>();
+        const operations = ops
+          .map((op) => {
+            const change: Record<string, unknown> = {};
+            for (const [field, ch] of op.change) {
+              const k = `${op.select.record}.${field}`;
+              if (used.has(k)) continue;
+              used.add(k);
+              change[field] = ch;
+            }
+            return { select: op.select, change };
+          })
+          .filter((op) => Object.keys(op.change).length > 0)
+          .map((op, i) => ({ id: `op${i}`, ...op }));
+        return {
+          schemaVersion: 1,
+          name,
+          target: { format: "wad", maps: targetMaps },
+          ...(allowProtected ? { allowProtected: ["sector-special-nonzero"] } : {}),
+          operations,
+        };
+      }),
+  );
+}
+
+/** 只含 set 的补丁。 */
+export function setOnlyPatchFor(bytes: Uint8Array, o: Omit<PatchForOptions, "setOnly"> = {}): fc.Arbitrary<Record<string, unknown>> {
+  return patchFor(bytes, { ...o, setOnly: true });
+}
+
+/** 两张同名地图（各带全部数据 Lump）的 WAD：作用域 id 为 <name>@<markerIndex>，pin 该名称应为 CONFLICT_AMBIGUOUS。 */
+export const dupMapWad: fc.Arbitrary<{ bytes: Uint8Array; name: string; sectorCount: number }> = fc
+  .record({
+    name: fc.constantFrom("MAP01", "E1M1"),
+    sectorCount: fc.integer({ min: 1, max: 4 }),
+    seed: fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 1, maxLength: 20 }),
+    between: fc.array(lumpInput, { maxLength: 2 }),
+  })
+  .map(({ name, sectorCount, seed, between }) => {
+    const map = (): LumpInput[] => [
+      { name, data: new Uint8Array(0) },
+      ...MAP_DATA_LUMPS.map((n) => ({
+        name: n,
+        data: n === "SECTORS" ? sectorBytes(sectorCount, seed) : n === "THINGS" ? thingBytes(2, seed) : Uint8Array.of(...seed.slice(0, 3)),
+      })),
+    ];
+    const strip = (l: LumpInput): LumpInput => ({ name: "X" + l.name.slice(0, 7), data: l.data });
+    return { bytes: buildWad({ kind: "PWAD", lumps: [...map(), ...between.map(strip), ...map()] }), name, sectorCount };
+  });
+
+/**
+ * mapWad 的变体：把第一张地图某个扇区的 name8 字段改成"第一个 NUL 之后还有非零字节"。
+ * 返回字节和被改的位置（字段名来自布局）。
+ */
+export const name8TailWad: fc.Arbitrary<{ bytes: Uint8Array; map: string; index: number; field: string }> = fc
+  .record({
+    base: mapWad,
+    pick: fc.nat(),
+    field: fc.constantFrom(...Object.entries(RECORD_LAYOUTS.Sector.fields).filter(([, l]) => l.type === "name8").map(([f]) => f)),
+    nulAt: fc.integer({ min: 0, max: 6 }),
+    tail: fc.integer({ min: 1, max: 255 }),
+    tailAt: fc.nat(),
+  })
+  .map(({ base, pick, field, nulAt, tail, tailAt }) => {
+    const wad = WadFile.parse(base.bytes);
+    const m = wad.maps[0]!;
+    const lump = wad.mapLump(m, "SECTORS")!.index;
+    const index = pick % base.sectorCount;
+    const s = wad.fieldSpan(lump, "Sector", index, field as "floorpic");
+    const out = base.bytes.slice();
+    out[s.start + nulAt] = 0;
+    out[s.start + nulAt + 1 + (tailAt % (7 - nulAt))] = tail;
+    return { bytes: out, map: m.name, index, field };
+  });

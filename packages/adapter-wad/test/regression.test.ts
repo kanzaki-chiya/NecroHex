@@ -1,13 +1,18 @@
 /**
  * 回归用例：每个由属性测试或人工核对发现的缺陷对应一个命名用例，用例名以缺陷编号开头。
- * 编号对应 .kiro/specs/wad-roundtrip/design.md 的"已知差异与风险"。
+ * wad-roundtrip 的编号对应 .kiro/specs/wad-roundtrip/design.md 的"已知差异与风险"。
  * 已有用例（按实施顺序）：D-5、X-1、X-4、D-6、F-3、X-3。
+ * patch-engine 的用例以 P<属性编号>-<序号> 开头，对应 .kiro/specs/patch-engine/design.md 的 Correctness Properties；
+ * 另有 PE- 开头的固定例子（tasks.md 7.15 列出的必备用例）。
+ * Property 16（SHA-256 差分，任务 1.3）和 Property 1、2、5–15 在实现过程中没有找到反例。
  */
 import { describe, expect, it } from "vitest";
 import * as core from "@necrohex/core";
+import { applyPatch, planPatch, revertPatch, type Receipt } from "@necrohex/core";
 import * as coreInternal from "@necrohex/core/internal";
-import { buildWad, WadFile, WadRecordError } from "../src/index.ts";
+import { buildWad, MAP_DATA_LUMPS, wadAdapter, WadFile, WadRecordError } from "../src/index.ts";
 import { equalBytes, withFilepos } from "./helpers.ts";
+import { FIXTURE } from "./patch-helpers.ts";
 
 describe("D-5 parse 复制输入，baseBuffer 不再存在", () => {
   const source = () => buildWad({ kind: "PWAD", lumps: [{ name: "A", data: Uint8Array.of(1, 2, 3, 4) }] });
@@ -270,5 +275,188 @@ describe("X-3 带 BEHAVIOR 的 Hexen 地图不按 Doom 布局访问记录", () =
     // 其余接口不受限，往返照常
     expect(wad.lumpBytes(1)).toHaveLength(40);
     expect(equalBytes(wad.serialize(), input)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// patch-engine
+// ---------------------------------------------------------------------------
+
+/** 一张 MAP01：给定 SECTORS 和 THINGS 数据，其余数据 Lump 各 4 字节。 */
+function oneMap(sectors: Uint8Array, things: Uint8Array = new Uint8Array(10)): Uint8Array {
+  return buildWad({
+    kind: "PWAD",
+    lumps: [
+      { name: "MAP01", data: new Uint8Array(0) },
+      ...MAP_DATA_LUMPS.map((n) => ({ name: n, data: n === "SECTORS" ? sectors : n === "THINGS" ? things : new Uint8Array(4) })),
+    ],
+  });
+}
+
+/** 扇区原始字节：floorpic 为给定 8 字节，lightlevel、special 为给定值。 */
+function sector(pic: number[], lightlevel = 160, special = 0): Uint8Array {
+  const raw = new Uint8Array(26);
+  raw.set(pic, 4);
+  const v = new DataView(raw.buffer);
+  v.setInt16(20, lightlevel, true);
+  v.setInt16(22, special, true);
+  return raw;
+}
+
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+const patchOf = (operations: unknown[], extra: Record<string, unknown> = {}) => ({
+  schemaVersion: 1,
+  name: "regression",
+  target: { format: "wad", maps: "*" },
+  operations,
+  ...extra,
+});
+
+describe("P3-1 set 补丁的选择器按当前输入求值：跨操作读取时再应用会选中新记录", () => {
+  // Property 3 在生成样本上找到的反例（缩减后）：op1 把所有 Thing 的 x 设成 23402，
+  // op0 的 where 读取 x。第一次应用时 op0 按输入值求值、匹配 0 条；对输出再应用时匹配 1 条，flags 被改，结果不再是 O。
+  // 这是选择器语义（写入前、按输入值求值），不是缺陷；Property 3 因此加上"没有跨操作读取"的前提。
+  const things = new Uint8Array(10);
+  new DataView(things.buffer).setInt16(0, -202, true);
+  const bytes = oneMap(new Uint8Array(26), things);
+  const patch = patchOf([
+    { id: "op0", select: { record: "Thing", where: { x: { ne: -202 }, angle: { gte: -202, lte: 0 } } }, change: { flags: { set: 23402 } } },
+    { id: "op1", select: { record: "Thing", all: true }, change: { x: { set: 23402 }, y: { set: -202 }, type: { set: -32768 } } },
+  ]);
+
+  it("第一次应用：op0 按输入值匹配 0 条", () => {
+    const first = applyPatch(bytes, patch, wadAdapter);
+    expect(first.ok).toBe(true);
+    expect(first.matches).toEqual([
+      { operationId: "op0", count: 0 },
+      { operationId: "op1", count: 1 },
+    ]);
+  });
+
+  it("对输出以 allowReapply 再应用：op0 匹配 1 条，flags 被改", () => {
+    const first = applyPatch(bytes, patch, wadAdapter);
+    const second = applyPatch(first.output!, patch, wadAdapter, { allowReapply: true });
+    expect(second.ok).toBe(true);
+    expect(second.matches[0]).toEqual({ operationId: "op0", count: 1 });
+    expect(second.changedCount).toBe(1);
+    expect(equalBytes(second.output!, first.output!)).toBe(false);
+  });
+});
+
+describe("P3-2 再应用设置了非零 special 的补丁会被 sector-special-nonzero 拦下", () => {
+  // Property 3 在 Freedoom 夹具上找到的反例：MAP01 #0 的 special 原为 0，第一次 set 为 1 成功；
+  // 再应用时旧值是 1（非零），保护钩子按规则拦截。保护不放宽，显式 opt-in 后结果仍是 O。
+  const patch = patchOf([{ id: "op0", select: { record: "Sector", pin: { map: "MAP01", expectedIndex: 0 } }, change: { special: { set: 1 }, tag: { set: -32768 } } }]);
+
+  it("夹具 MAP01 #0 的 special 原为 0", () => {
+    expect(wadAdapter.open(FIXTURE).readField({ scope: "MAP01", record: "Sector", index: 0 }, "special")).toBe(0);
+  });
+
+  it("再应用为 PROTECTED；opt-in 后得到同一份字节", () => {
+    const first = applyPatch(FIXTURE, patch, wadAdapter);
+    expect(first.ok).toBe(true);
+    const second = applyPatch(first.output!, patch, wadAdapter, { allowReapply: true });
+    expect(second.ok).toBe(false);
+    expect(second.issues).toEqual([expect.objectContaining({ code: "PROTECTED", hook: "sector-special-nonzero", operationId: "op0", field: "special" })]);
+    const optIn = applyPatch(first.output!, { ...patch, allowProtected: ["sector-special-nonzero"] }, wadAdapter, { allowReapply: true });
+    expect(optIn.ok).toBe(true);
+    expect(equalBytes(optIn.output!, first.output!)).toBe(true);
+  });
+});
+
+describe("P4-1 名称比较只折叠 ASCII 大小写", () => {
+  // Property 4 的测试最初用 String.prototype.toLowerCase 改写条件，生成样本里 floorpic 含 latin1 字母（如 0xC9 'É'），
+  // 被改成 0xE9 'é' 后不再匹配。规则是只折叠 ASCII a–z，所以 'É' 与 'é' 是不同名称；测试改为只改 ASCII。
+  const bytes = oneMap(concat(sector([0xc9, 0x41, 0]), sector([0xe9, 0x61, 0])));
+  const matched = (eq: string) =>
+    planPatch(bytes, patchOf([{ id: "n", select: { record: "Sector", where: { floorpic: { eq } } }, change: { tag: { set: 1 } } }]), wadAdapter).changes.map((c) => c.index);
+
+  it("扇区 #0 为 'ÉA'、#1 为 'éa'：ASCII 部分不分大小写，'É' 与 'é' 不同", () => {
+    expect(matched("\u00c9A")).toEqual([0]);
+    expect(matched("\u00c9a")).toEqual([0]);
+    expect(matched("\u00e9a")).toEqual([1]);
+    expect(matched("\u00e9A")).toEqual([1]);
+    expect(matched("EA")).toEqual([]);
+  });
+});
+
+describe("PE-1 非零 special 默认受保护", () => {
+  it("覆盖 special = 9 的扇区为 PROTECTED，无字节；opt-in 后成功", () => {
+    const bytes = oneMap(sector([0x46, 0x31, 0], 160, 9));
+    const patch = patchOf([{ id: "s", select: { record: "Sector", all: true }, change: { special: { set: 0 } } }]);
+    const r = applyPatch(bytes, patch, wadAdapter);
+    expect(r.issues).toEqual([expect.objectContaining({ code: "PROTECTED", hook: "sector-special-nonzero", operationId: "s" })]);
+    expect(r.output).toBeUndefined();
+    expect(applyPatch(bytes, { ...patch, allowProtected: ["sector-special-nonzero"] }, wadAdapter).ok).toBe(true);
+  });
+});
+
+describe("PE-2 同名地图的 pin 为 CONFLICT_AMBIGUOUS", () => {
+  it("两张 MAP01，pin MAP01 #0 不猜测", () => {
+    const one = WadFile.parse(oneMap(sector([0x41, 0])));
+    const lumps = one.lumps.map((l) => ({ name: l.name, data: one.lumpBytes(l.index) }));
+    const bytes = buildWad({ kind: "PWAD", lumps: [...lumps, ...lumps] });
+    const r = applyPatch(bytes, patchOf([{ id: "p", select: { record: "Sector", pin: { map: "MAP01", expectedIndex: 0 } }, change: { tag: { set: 1 } } }]), wadAdapter);
+    expect(r.issues).toEqual([expect.objectContaining({ code: "CONFLICT_AMBIGUOUS", operationId: "p" })]);
+    expect(r.output).toBeUndefined();
+  });
+});
+
+describe("PE-3 OLD_VALUE_NOT_RESTORABLE", () => {
+  it("floorpic 第一个 NUL 后有非零字节：拒绝写入并写明作用域、下标和字段名", () => {
+    const bytes = oneMap(concat(sector([0x41, 0x42, 0, 0x37]), sector([0x41, 0])));
+    const r = applyPatch(bytes, patchOf([{ id: "pic", select: { record: "Sector", all: true }, change: { floorpic: { set: "BLOOD1" } } }]), wadAdapter);
+    expect(r.ok).toBe(false);
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0]).toMatchObject({
+      code: "VALUE_REJECTED",
+      reason: "OLD_VALUE_NOT_RESTORABLE",
+      operationId: "pic",
+      locator: { scope: "MAP01", record: "Sector", index: 0 },
+      field: "floorpic",
+    });
+    expect(r.issues[0]!.message).toContain("MAP01 Sector #0 floorpic");
+    expect(r.changes.map((c) => c.index)).toEqual([1]);
+  });
+});
+
+describe("PE-4 空串和非 ASCII 的历史 name8 经应用和撤销不变", () => {
+  it.each([
+    ["空串（8 个 NUL）", [0, 0, 0, 0, 0, 0, 0, 0]],
+    ["非 ASCII latin1", [0xc9, 0xff, 0x80, 0x01, 0]],
+    ["8 字节无 NUL", [0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0xfe]],
+  ])("%s", (_name, pic) => {
+    const bytes = oneMap(sector(pic));
+    const patch = patchOf([{ id: "pic", select: { record: "Sector", all: true }, change: { floorpic: { set: "BLOOD1" }, ceilingpic: { set: "CEIL1" } } }]);
+    const r = applyPatch(bytes, patch, wadAdapter);
+    expect(r.issues).toEqual([]);
+    const back = revertPatch(r.output!, JSON.parse(JSON.stringify(r.receipt)), wadAdapter);
+    expect(back.issues).toEqual([]);
+    expect(equalBytes(back.output!, bytes)).toBe(true);
+  });
+});
+
+describe("PE-5 越界整数写回被拒绝", () => {
+  it("伪造回执把 oldValue 改成 40000：RECEIPT_MISMATCH，reason 为 ENCODE，带定位，无字节", () => {
+    const bytes = oneMap(sector([0x41, 0]));
+    const r = applyPatch(bytes, patchOf([{ id: "dim", select: { record: "Sector", all: true }, change: { lightlevel: { scale: 0.5 } } }]), wadAdapter);
+    const forged = JSON.parse(JSON.stringify(r.receipt)) as { entries: Array<Record<string, unknown>> };
+    forged.entries[0]!.oldValue = 40000;
+    const back = revertPatch(r.output!, forged as unknown as Receipt, wadAdapter);
+    expect(back.ok).toBe(false);
+    expect(back.output).toBeUndefined();
+    expect(back.issues).toEqual([
+      expect.objectContaining({ code: "RECEIPT_MISMATCH", reason: "ENCODE", locator: { scope: "MAP01", record: "Sector", index: 0 }, field: "lightlevel" }),
+    ]);
+    expect(back.issues[0]!.message).toContain("MAP01 Sector #0 lightlevel");
   });
 });

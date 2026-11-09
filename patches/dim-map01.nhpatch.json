@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "Dim MAP01",
+  "target": { "format": "wad", "maps": ["MAP01"] },
+  "operations": [
+    {
+      "id": "dim-lights",
+      "select": { "record": "Sector", "where": { "lightlevel": { "gte": 160 } } },
+      "change": { "lightlevel": { "scale": 0.5, "clamp": [32, 255] } }
+    }
+  ]
+}

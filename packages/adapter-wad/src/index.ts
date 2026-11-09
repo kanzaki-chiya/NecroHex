@@ -4,3 +4,4 @@ export * from "./export.ts";
 export * from "./demo.ts";
 export * from "./field-codec.ts";
 export * from "./generated/records.ts";
+export { wadAdapter } from "./record-source.ts";

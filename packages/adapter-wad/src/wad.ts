@@ -1,6 +1,7 @@
 import { complementSpans, mergeSpans, span, spansOverlap, type Span } from "@necrohex/core";
 import { ByteOverlay } from "@necrohex/core/internal";
-import { fieldByteLength } from "./field-codec.ts";
+import { fieldByteLength, FIELD_TYPE_SIZE, type FieldLayout } from "./field-codec.ts";
+import { installRestore } from "./restore-channel.ts";
 import {
   RECORD_LAYOUTS,
   RECORD_READERS,
@@ -128,6 +129,33 @@ function decodeName(bytes: Uint8Array): string {
 
 function view(bytes: Uint8Array): DataView {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+/**
+ * 旧值的类型域编码，只供 #restoreField 使用，不导出。
+ * int16 / uint16：类型范围内的整数。name8：长 0 到 8、码元 0x01–0xFF 的字符串，按 latin1 写入并补 NUL。
+ * 不做新值的额外限制（可打印 ASCII、至少 1 个字符），因为旧值来自原文件。
+ */
+function encodeRestoreValue(layout: FieldLayout, label: string, value: unknown): Uint8Array {
+  if (layout.count !== 1) throw new TypeError(`${label}: only single-value fields can be restored`);
+  const out = new Uint8Array(FIELD_TYPE_SIZE[layout.type]);
+  if (layout.type === "name8") {
+    if (typeof value !== "string") throw new TypeError(`${label}: expected a string`);
+    if (value.length > 8) throw new RangeError(`${label}: name must be at most 8 characters`);
+    for (let i = 0; i < value.length; i++) {
+      const c = value.charCodeAt(i);
+      if (c < 0x01 || c > 0xff) throw new RangeError(`${label}: character code ${c} is outside 0x01..0xFF`);
+      out[i] = c;
+    }
+    return out;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) throw new TypeError(`${label}: expected an integer`);
+  const [min, max] = layout.type === "int16" ? [-32768, 32767] : [0, 65535];
+  if (value < min || value > max) throw new RangeError(`${label}: ${value} is outside ${layout.type} range ${min}..${max}`);
+  const v = new DataView(out.buffer);
+  if (layout.type === "int16") v.setInt16(0, value, true);
+  else v.setUint16(0, value, true);
+  return out;
 }
 
 export class WadFile {
@@ -303,11 +331,39 @@ export class WadFile {
     field: F,
     value: RecordTypes[K][F],
   ): Span {
+    return this.#writeEncoded(lumpIndex, record, index, field, () => {
+      const encode = (generated as unknown as Record<string, (f: string, v: unknown) => Uint8Array>)[`encode${record}Field`];
+      if (!encode) throw new Error(`no encoder for ${record}`);
+      return encode(field, value);
+    });
+  }
+
+  static {
+    // 写回通道：把调用私有 #restoreField 的闭包交给 restore-channel.ts（只接受一次），不经任何入口导出
+    installRestore((wad, lumpIndex, record, index, field, value) => wad.#restoreField(lumpIndex, record, index, field, value));
+  }
+
+  /**
+   * 撤销时写回旧值。与 setField 走同一条 #writeEncoded（只读、位置、作用域、结构重叠检查完全相同），
+   * 值只做类型域检查（encodeRestoreValue），因为旧值来自原文件，可能是新值校验不接受的历史数据。
+   */
+  #restoreField(lumpIndex: number, record: string, index: number, field: string, value: unknown): Span {
+    if (!Object.hasOwn(RECORD_LAYOUTS, record)) throw new TypeError(`unknown record type ${record}`);
+    const rec = record as RecordName;
+    return this.#writeEncoded(lumpIndex, rec, index, field, () => {
+      const fields = RECORD_LAYOUTS[rec].fields as Record<string, FieldLayout>;
+      return encodeRestoreValue(fields[field]!, `${record}.${field}`, value);
+    });
+  }
+
+  /**
+   * 写入的公共路径。检查顺序：记录类型 → 位置与字段名 → 值（encode 回调）→ 地图作用域 → 写入重叠；任何一步失败都尚未写入。
+   */
+  #writeEncoded(lumpIndex: number, record: RecordName, index: number, field: string, encode: () => Uint8Array): Span {
     if (!WRITABLE_RECORDS.has(record)) throw new Error(`${record} records are read-only`);
-    const target = this.fieldSpan(lumpIndex, record, index, field);
-    const encode = (generated as unknown as Record<string, (f: string, v: unknown) => Uint8Array>)[`encode${record}Field`];
-    if (!encode) throw new Error(`no encoder for ${record}`);
-    const bytes = encode(field, value);
+    const target = this.fieldSpan(lumpIndex, record, index, field as never);
+    const bytes = encode();
+    if (bytes.length !== target.end - target.start) throw new Error(`encoded ${record}.${field} has ${bytes.length} bytes, expected ${target.end - target.start}`);
     // 作用域规则：不属于任何地图作用域的 Lump 可读不可写。写入必须能证明目标属于一张已识别的地图，
     // 记录大小和字段偏移才有依据。作用域识别是名称启发式，误判的方向是拒绝写入，而不是错误写入。
     // 落入任一非 Doom 作用域的 Lump 已在前面的 fieldSpan 里被拒绝（UNSUPPORTED_MAP_FORMAT，优先于本检查），
