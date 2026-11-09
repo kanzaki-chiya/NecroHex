@@ -50,11 +50,70 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 | 工具 | 在开发中如何使用 |
 | :--- | :--- |
-| NecroHex 自己的 MCP Server（`packages/mcp-server`） | 2026-11-09 实现。Agent 想写 `.kiro/settings/mcp.json` 时被这个环境的权限规则拦下（拒绝写 `.kiro/settings/`），Agent 没有绕过，改为提交 `packages/mcp-server/mcp.example.json`，由用户复制。到这次会话结束为止，Kiro 里还没有加载这个服务器，也没有在 Kiro 对话里真实调用过它的工具：Kiro 端到端没有跑通。服务器本身用官方 SDK 的 stdio 客户端测过（`packages/mcp-server/test/stdio.test.ts`，在配置了引擎的环境里 10 个用例全部通过） |
+| NecroHex 自己的 MCP Server（`packages/mcp-server`） | 2026-11-09 实现。Agent 想写 `.kiro/settings/mcp.json` 时被这个环境的权限规则拦下（拒绝写 `.kiro/settings/`），Agent 没有绕过，改为提交 `packages/mcp-server/mcp.example.json`，由用户复制。到这次会话结束为止，Kiro 里还没有加载这个服务器，也没有在 Kiro 对话里真实调用过它的工具：Kiro 端到端没有跑通。服务器本身用官方 SDK 的 stdio 客户端测过（`packages/mcp-server/test/stdio.test.ts`，在配置了引擎的环境里 10 个用例全部通过）。2026-11-10 放好 `.kiro/settings/mcp.json` 后，Kiro 加载了服务器，端到端流程在 Kiro 对话里跑通，见下面的调用记录 |
 
 ### Kiro 端到端调用记录
 
-还没有。待 Kiro 连上服务器之后，在对话里按“查询 MAP01 → 为出生点所在房间之外的一个房间写补丁 → plan_patch → apply_patch → verify_output”调用，再把实际调用和结果记在这里。
+#### 2026-11-10 第一次端到端
+
+`.kiro/settings/mcp.json` 已按 `packages/mcp-server/mcp.example.json` 放好（内容相同）。在一个新会话里，Kiro 加载了 `necrohex` 的五个工具（`inspect_wad`、`query_entities`、`plan_patch`、`apply_patch`、`verify_output`），整个流程只用这些工具完成，没有用命令行或脚本代替。六步全部成功，没有失败的调用。下面按调用顺序记录参数和结果摘要。路径都相对仓库根目录，`freedoom2.wad` 指 `packages/adapter-wad/fixtures/cache/freedoom2.wad`。
+
+1. **`inspect_wad`**，参数 `{ path: freedoom2.wad }`。结果：`IWAD`，sha256 `a8772e08…0ecd4b`，28 787 748 字节，3610 个 Lump，32 张地图（MAP01–MAP32，均为 doom 格式）。MAP01 有 Sector 211、Thing 200、Linedef 1274、Sidedef 2041、Vertex 1189。可写记录只有 Sector 和 Thing。
+
+2. **`query_entities`**，调用了三次。
+   - 查出生点：`{ path: freedoom2.wad, maps: ["MAP01"], select: { record: "Thing", where: { type: { in: [1, 2, 3, 4, 11] } } } }`。结果 14 条：玩家 1–4 出生点是 #0–#3，位于 (-192, -192)、(-192, -240)、(-192, -144)、(-192, -96)；另有 10 个死亡竞赛出生点（#52、#65、#68、#69、#71、#73、#119、#132、#139、#159）。
+   - 查扇区：`{ …, select: { record: "Sector", where: { special: { eq: 0 }, tag: { eq: 0 } } }, limit: 5, includeFingerprint: true }`。结果 total 173，返回 5 条，truncated。#0 的 bbox 是 [-224, -288, -32, 32]，四个玩家出生点都在里面；`patches/haunted-house.nhpatch.json` 也把 #0 当作出生房间。#2 的天花板是 `F_SKY1`，是室外区域，所以没有选它。
+   - 缩小到室内：`{ …, where: { special: { eq: 0 }, tag: { eq: 0 }, ceilingpic: { ne: "F_SKY1" }, lightlevel: { lte: 192 } }, fields: [7 个字段], limit: 12, includeFingerprint: true }`。结果 total 100，返回 12 条，truncated。
+
+   选了 **MAP01 Sector #12**。它的天花板是 `AQF057`，是室内房间；面积 20480，10 条线；bbox [224, 64, 480, 288] 里没有任何玩家出生点或死亡竞赛出生点，和出生扇区 #0 的 bbox 不相交，所以两者不相邻。`special` 和 `tag` 都是 0，不是门、升降机或触发目标。第 4 步的 pin 结果里只有它一个候选，说明它的指纹和别的扇区不撞。这次只是按 bbox 判断出生点不在里面，工具不做点在多边形内的判断。
+
+3. **补丁**直接以 JSON 对象传给工具，没有存成文件：
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "name": "Kiro E2E",
+     "target": { "format": "wad", "maps": ["MAP01"] },
+     "operations": [{
+       "id": "glow-room-map01-12",
+       "select": {
+         "record": "Sector",
+         "pin": {
+           "map": "MAP01",
+           "expectedIndex": 12,
+           "fingerprint": {
+             "tag": 0, "floorpic": "AQF024", "ceilingpic": "AQF057",
+             "heights": [-32, 64], "centroid": [352, 147],
+             "bbox": [224, 64, 480, 288], "area": 20480, "lineCount": 10
+           }
+         }
+       },
+       "change": { "floorpic": { "set": "FLOOR5_2" }, "special": { "set": 8 } }
+     }]
+   }
+   ```
+
+   `special` 8 是灯光呼吸（glow）特效。补丁格式里 `pin` 不能再加 `where` 条件。“原特效必须是 0”这一条由默认开启的护栏 `sector-special-nonzero` 保证：补丁没有 opt-in，如果原值不是 0，plan 会被拒绝。
+
+4. **`plan_patch`**，参数 `{ inputPath: freedoom2.wad, iwadPath: freedoom2.wad, patch: <上面的补丁> }`。结果 `status: ready`，planId `plan-a755eb66…cd902373`，patchHash `sha256:78095e30…6edb907`，匹配 1 条，改动 2 个字段，没有 warning 和 issue，15 项检查全部 passed（其中包括 `sector-special-nonzero` 和 `flat-exists`）。
+   - pin：`EXACT: #12 matches its fingerprint (score 1)`，expectedIndex 12 → index 12，fingerprintChecked true，只有 1 个候选，needsReview false。
+   - 字段 Diff：
+
+     | 记录 | 字段 | 旧值 | 新值 |
+     | :--- | :--- | :--- | :--- |
+     | MAP01 Sector #12 | `floorpic` | `AQF024` | `FLOOR5_2` |
+     | MAP01 Sector #12 | `special` | 0 | 8 |
+
+5. **`apply_patch`**，参数 `{ inputPath: freedoom2.wad, iwadPath: freedoom2.wad, patch: <同一补丁>, planId: <第 4 步的 planId>, outputPath: "out/kiro-e2e.wad" }`。结果 `status: applied`，写出 `out/kiro-e2e.wad`（sha256 `8e1077f2…b5f74`）和 `out/kiro-e2e.receipt.json`。回执有 2 条记录，outputHash `5bb222ea…cbc953`，输入文件未改动。PWAD 包含 MAP01 的标记和全部 10 个数据 Lump，3 项导出检查通过。
+
+   结果里 `maps[0].modified` 是 `false`，可实际上 MAP01 的 SECTORS 改了两个字段（第 6 步的 `pwad-maps` 确认 PWAD 的数据和补丁后的 WAD 一致）。原因是 `packages/cli/src/ops.ts` 先把输出重新解析成新的 `WadFile`，再交给 `exportPwad`，新对象的 `dirtySpans()` 是空的，所以这个标志永远是 `false`。写出的字节没有问题，错的只是报告里的这个字段。这次没有修。
+
+6. **`verify_output`**，参数 `{ inputPath: freedoom2.wad, outputPath: "out/kiro-e2e.wad", receiptPath: "out/kiro-e2e.receipt.json", iwadPath: freedoom2.wad }`。结果 `status: passed`，`verified: true`。
+   - `receipt-input-hash`、`receipt-replay`、`locality (I-3)`、`revert (I-4)`、`pwad-maps` 都是 passed；`full-output-hash` 是 skipped，因为没有传 `fullOutputPath`。
+   - 引擎真的运行了：`engine.status: passed`，路径 `C:\Users\Administrator\AppData\Local\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`，source `default`。MAP01 跑了 350 tic，60 秒内结束，退出码 0。
+   - 工具自己注明，这些检查不说明地图能通关。
+
+`out/` 被 `.gitignore` 忽略，输出文件没有提交。
 
 ### 给用户的操作步骤（2026-11-09 更新）
 
