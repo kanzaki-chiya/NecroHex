@@ -2,6 +2,7 @@
  * 补丁引擎：planPatch（干跑）、applyPatch、revertPatch、patchHash、bytesHash。
  * 先在输入值上算好全部改动；有任一问题就不返回字节。干跑与应用共用同一条流水线。
  * 写回通道（restoreField）只在 revertPatch 中、核对全部通过之后调用。
+ * 结果里的 checks 只列出做过哪些检查及结果，不声称地图可以通关。
  */
 import { bytesHash as hashBytes, canonicalJson, sha256, toHex, utf8Encode } from "../hash.ts";
 import { spansOverlap } from "../span.ts";
@@ -10,6 +11,7 @@ import { copyChange, makeReceipt, validateReceipt, type Receipt } from "./receip
 import { lookupRestorer } from "./restorable.ts";
 import { evaluateSelectors } from "./select.ts";
 import type {
+  CheckResult,
   PatchIssue,
   PlannedChange,
   ProposedChange,
@@ -35,6 +37,8 @@ export interface PlanResult {
   changes: PlannedChange[];
   /** changes 中 unchanged === false 的条目数。 */
   changedCount: number;
+  /** 本次运行做过的检查及结果。补丁在打开 Record_Source 之前就被拒绝时为空。只说明检查过什么，不说明地图可以通关。 */
+  checks: CheckResult[];
 }
 
 export interface ApplyResult extends PlanResult {
@@ -77,7 +81,51 @@ function describe(loc: RecordLocator, field: string): string {
 }
 
 function failed(issues: PatchIssue[]): ApplyResult {
-  return { ok: false, issues, warnings: [], matches: [], changes: [], changedCount: 0 };
+  return { ok: false, issues, warnings: [], matches: [], changes: [], changedCount: 0, checks: [] };
+}
+
+const ENGINE_CHECKS: ReadonlyArray<{ name: string; description: string; failed: (i: PatchIssue) => boolean }> = [
+  {
+    name: "field-conflict",
+    description: "no two operations write the same field or overlapping bytes",
+    failed: (i) => i.code === "CONFLICT_FIELD",
+  },
+  {
+    name: "old-value-restorable",
+    description: "every old value can be written back exactly by revert",
+    failed: (i) => i.code === "VALUE_REJECTED" && i.reason === "OLD_VALUE_NOT_RESTORABLE",
+  },
+];
+
+function summarizeChecks(
+  source: RecordSource,
+  adapter: RecordAdapter,
+  issues: readonly PatchIssue[],
+  warnings: readonly PatchIssue[],
+  allowedProtections: ReadonlySet<string>,
+  skipped: boolean,
+): CheckResult[] {
+  const out: CheckResult[] = ENGINE_CHECKS.map((c) => ({
+    name: c.name,
+    kind: "engine",
+    description: c.description,
+    status: issues.some(c.failed) ? "failed" : "passed",
+  }));
+  for (const c of source.structuralChecks ?? []) {
+    const failed = issues.some((i) => i.code === "VALUE_REJECTED" && i.reason !== undefined && c.reasons.includes(i.reason));
+    out.push({ name: c.name, kind: "structure", description: c.description, status: failed ? "failed" : skipped ? "incomplete" : "passed" });
+  }
+  for (const h of adapter.hooks) {
+    const status: CheckResult["status"] = issues.some((i) => i.code === "PROTECTED" && i.hook === h.name)
+      ? "failed"
+      : allowedProtections.has(h.name)
+        ? "allowed"
+        : warnings.some((w) => w.hook === h.name)
+          ? "warned"
+          : "passed";
+    out.push({ name: h.name, kind: "playability", description: h.description ?? h.name, status });
+  }
+  return out;
 }
 
 /** 只暴露读取方法的视图，交给保护钩子。 */
@@ -209,7 +257,7 @@ function run(input: Uint8Array, rawPatch: unknown, adapter: RecordAdapter, optio
   const reader = readerOf(source);
   for (const c of proposed) {
     for (const hook of adapter.hooks) {
-      const note = hook.check(c, reader);
+      const note = hook.check(c, reader, source.hookContext);
       if (note === null) continue;
       const loc = locatorOf(c);
       if (hook.severity === "warn") {
@@ -248,10 +296,38 @@ function run(input: Uint8Array, rawPatch: unknown, adapter: RecordAdapter, optio
     }
     changes.push(copyChange({ ...c, unchanged: outcome.unchanged }));
   });
-  const changedCount = changes.filter((c) => !c.unchanged).length;
-  const result: ApplyResult = { ok: issues.length === 0, issues, warnings, matches, changes, changedCount };
 
-  // 10. 无问题且非干跑：输出字节和回执
+  // 10. 跨字段结构检查（看到的是写入后的值）；被拒绝的条目从 changes 中去掉
+  if (source.checkWrites) {
+    const rejected = source.checkWrites(changes.map((c) => ({ locator: locatorOf(c), field: c.field, unchanged: c.unchanged })));
+    const drop = new Set<string>();
+    for (const r of rejected) {
+      const owner = changes.find(
+        (c) => c.scope === r.locator.scope && c.record === r.locator.record && c.index === r.locator.index && c.field === r.field,
+      );
+      drop.add(`${r.locator.scope}\u0000${r.locator.record}\u0000${r.locator.index}\u0000${r.field}`);
+      issues.push({
+        code: "VALUE_REJECTED",
+        reason: r.reason,
+        message: `${describe(r.locator, r.field)}: ${r.message}`,
+        ...(owner ? { operationId: owner.operationId } : {}),
+        locator: { scope: r.locator.scope, record: r.locator.record, index: r.locator.index },
+        field: r.field,
+      });
+    }
+    if (drop.size > 0) {
+      for (let i = changes.length - 1; i >= 0; i--) {
+        const c = changes[i]!;
+        if (drop.has(`${c.scope}\u0000${c.record}\u0000${c.index}\u0000${c.field}`)) changes.splice(i, 1);
+      }
+    }
+  }
+
+  const changedCount = changes.filter((c) => !c.unchanged).length;
+  const checks = summarizeChecks(source, adapter, issues, warnings, allowedProtections, skip.size > 0);
+  const result: ApplyResult = { ok: issues.length === 0, issues, warnings, matches, changes, changedCount, checks };
+
+  // 11. 无问题且非干跑：输出字节和回执
   if (!result.ok || dryRun) return result;
   const output = source.serialize();
   result.output = output;

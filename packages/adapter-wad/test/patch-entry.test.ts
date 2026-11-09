@@ -66,8 +66,15 @@ describe("adapter-wad 公开入口不暴露写回通道", () => {
     expect(Object.keys(pkg.exports).sort()).toEqual([".", "./node"]);
   });
 
-  it("主入口只新增了 wadAdapter 这一个补丁相关的值", () => {
+  it("主入口只新增了 wadAdapter 和 createWadAdapter 这两个补丁相关的值", () => {
     expect(typeof adapter.wadAdapter).toBe("object");
-    expect(Object.keys(adapter).filter((k) => /restor|adapter|record-source/i.test(k))).toEqual(["wadAdapter"]);
+    expect(typeof adapter.createWadAdapter).toBe("function");
+    expect(Object.keys(adapter).filter((k) => /restor|adapter|record-source/i.test(k)).sort()).toEqual(["createWadAdapter", "wadAdapter"]);
+  });
+
+  it("createWadAdapter 返回的 adapter 自有键同样恰为 format、open、hooks", () => {
+    const a = adapter.createWadAdapter();
+    expect(Reflect.ownKeys(a).map(String).sort()).toEqual(["format", "hooks", "open"]);
+    expect(allKeys(a.open(buildWad({ kind: "PWAD", lumps: [{ name: "MAP01", data: new Uint8Array(0) }, ...MAP_DATA_LUMPS.map((name) => ({ name, data: new Uint8Array(26) }))] })))).not.toContain("restoreField");
   });
 });

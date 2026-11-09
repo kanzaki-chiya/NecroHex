@@ -12,7 +12,7 @@ import { applyPatch, planPatch, revertPatch, type Receipt } from "@necrohex/core
 import * as coreInternal from "@necrohex/core/internal";
 import { buildWad, MAP_DATA_LUMPS, wadAdapter, WadFile, WadRecordError } from "../src/index.ts";
 import { equalBytes, withFilepos } from "./helpers.ts";
-import { FIXTURE } from "./patch-helpers.ts";
+import { FIXTURE, flatsAdapter } from "./patch-helpers.ts";
 
 describe("D-5 parse 复制输入，baseBuffer 不再存在", () => {
   const source = () => buildWad({ kind: "PWAD", lumps: [{ name: "A", data: Uint8Array.of(1, 2, 3, 4) }] });
@@ -325,12 +325,13 @@ describe("P3-1 set 补丁的选择器按当前输入求值：跨操作读取时�
   // Property 3 在生成样本上找到的反例（缩减后）：op1 把所有 Thing 的 x 设成 23402，
   // op0 的 where 读取 x。第一次应用时 op0 按输入值求值、匹配 0 条；对输出再应用时匹配 1 条，flags 被改，结果不再是 O。
   // 这是选择器语义（写入前、按输入值求值），不是缺陷；Property 3 因此加上"没有跨操作读取"的前提。
+  // 原反例里 op1 还把 type 设为 -32768。加入护栏后未知类型会被 thing-type-known 拒绝，而这个写入与选择器语义无关，所以去掉。
   const things = new Uint8Array(10);
   new DataView(things.buffer).setInt16(0, -202, true);
   const bytes = oneMap(new Uint8Array(26), things);
   const patch = patchOf([
     { id: "op0", select: { record: "Thing", where: { x: { ne: -202 }, angle: { gte: -202, lte: 0 } } }, change: { flags: { set: 23402 } } },
-    { id: "op1", select: { record: "Thing", all: true }, change: { x: { set: 23402 }, y: { set: -202 }, type: { set: -32768 } } },
+    { id: "op1", select: { record: "Thing", all: true }, change: { x: { set: 23402 }, y: { set: -202 } } },
   ]);
 
   it("第一次应用：op0 按输入值匹配 0 条", () => {
@@ -414,7 +415,8 @@ describe("PE-2 同名地图的 pin 为 CONFLICT_AMBIGUOUS", () => {
 describe("PE-3 OLD_VALUE_NOT_RESTORABLE", () => {
   it("floorpic 第一个 NUL 后有非零字节：拒绝写入并写明作用域、下标和字段名", () => {
     const bytes = oneMap(concat(sector([0x41, 0x42, 0, 0x37]), sector([0x41, 0])));
-    const r = applyPatch(bytes, patchOf([{ id: "pic", select: { record: "Sector", all: true }, change: { floorpic: { set: "BLOOD1" } } }]), wadAdapter);
+    // 基础 IWAD 提供 BLOOD1，否则新贴图名会先被 flat-exists 拒绝
+    const r = applyPatch(bytes, patchOf([{ id: "pic", select: { record: "Sector", all: true }, change: { floorpic: { set: "BLOOD1" } } }]), flatsAdapter);
     expect(r.ok).toBe(false);
     expect(r.issues).toHaveLength(1);
     expect(r.issues[0]).toMatchObject({
@@ -437,9 +439,10 @@ describe("PE-4 空串和非 ASCII 的历史 name8 经应用和撤销不变", () 
   ])("%s", (_name, pic) => {
     const bytes = oneMap(sector(pic));
     const patch = patchOf([{ id: "pic", select: { record: "Sector", all: true }, change: { floorpic: { set: "BLOOD1" }, ceilingpic: { set: "CEIL1" } } }]);
-    const r = applyPatch(bytes, patch, wadAdapter);
+    // 基础 IWAD 提供 BLOOD1 和 CEIL1；撤销用同一个 adapter
+    const r = applyPatch(bytes, patch, flatsAdapter);
     expect(r.issues).toEqual([]);
-    const back = revertPatch(r.output!, JSON.parse(JSON.stringify(r.receipt)), wadAdapter);
+    const back = revertPatch(r.output!, JSON.parse(JSON.stringify(r.receipt)), flatsAdapter);
     expect(back.issues).toEqual([]);
     expect(equalBytes(back.output!, bytes)).toBe(true);
   });

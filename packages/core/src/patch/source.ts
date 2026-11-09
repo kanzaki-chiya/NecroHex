@@ -41,11 +41,39 @@ export interface RecordReader {
   fieldSpan(loc: RecordLocator, field: string): Span;
 }
 
+/** 一项检查的说明。name 在同一 adapter 内唯一。 */
+export interface CheckInfo {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** 结构检查：拒绝时 writeField 或 checkWrites 返回的 reason 属于 reasons。 */
+export interface StructuralCheck extends CheckInfo {
+  readonly reasons: readonly string[];
+}
+
+/** checkWrites 返回的拒绝：哪条记录的哪个字段、什么原因。 */
+export interface WriteRejection {
+  readonly locator: RecordLocator;
+  readonly field: string;
+  readonly reason: string;
+  readonly message: string;
+}
+
 export interface RecordSource extends RecordReader {
   /** 旧值能否经写回通道无损写回。 */
   canRestore(loc: RecordLocator, field: string): boolean;
-  /** 写入新值，做完整校验。 */
+  /** 写入新值，做完整校验。只校验新值，不因记录里已有的非常规数据拒绝。 */
   writeField(loc: RecordLocator, field: string, value: FieldValue): WriteOutcome;
+  /**
+   * 全部写入之后的跨字段结构检查（例如同一记录两个字段之间的约束）。
+   * written 是本次成功写入的字段；只应检查其中实际改变的值所涉及的约束。
+   */
+  checkWrites?(written: readonly { readonly locator: RecordLocator; readonly field: string; readonly unchanged: boolean }[]): readonly WriteRejection[];
+  /** writeField 与 checkWrites 执行的结构检查，用于报告。 */
+  readonly structuralChecks?: readonly StructuralCheck[];
+  /** 交给保护钩子的格式相关上下文，core 不解释它。 */
+  readonly hookContext?: unknown;
   serialize(): Uint8Array;
 }
 
@@ -74,8 +102,24 @@ export interface PlannedChange extends ProposedChange {
 export interface ProtectionHook {
   readonly name: string;
   readonly severity: "block" | "warn";
-  /** 触发时返回说明，否则返回 null。 */
-  check(change: ProposedChange, reader: RecordReader): string | null;
+  /** 报告里列出的说明。 */
+  readonly description?: string;
+  /** 触发时返回说明，否则返回 null。context 是 RecordSource.hookContext。 */
+  check(change: ProposedChange, reader: RecordReader, context?: unknown): string | null;
+}
+
+/**
+ * 一项检查在本次运行中的结果。
+ * passed：参与检查的条目都没有触发；failed：有条目被拒绝；warned：警告类检查触发了；
+ * allowed：拦截类检查触发了，但补丁在 allowProtected 中显式放行；
+ * incomplete：有条目在这项检查之前就被排除，没有经过它。
+ * 这些结果只说明做过哪些静态检查，不说明地图可以通关。
+ */
+export interface CheckResult {
+  readonly name: string;
+  readonly kind: "engine" | "structure" | "playability";
+  readonly description: string;
+  readonly status: "passed" | "failed" | "warned" | "allowed" | "incomplete";
 }
 
 export interface RecordAdapter {

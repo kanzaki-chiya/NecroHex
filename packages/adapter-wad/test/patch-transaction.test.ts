@@ -101,9 +101,9 @@ describe.each(SAMPLES)("Feature: patch-engine, Property 8: 事务性（%s）", (
         else expect(found.some((i) => i.operationId === injected.ids[0])).toBe(true);
 
         if (problem === "special") {
-          // opt-in 后 PROTECTED 消失
+          // opt-in 后这条 PROTECTED 消失（补丁的其余操作仍可能触发别的钩子，例如写到玩家出生点）
           const optIn = applyPatch(bytes, { ...injected.patch, allowProtected: ["sector-special-nonzero"] }, wadAdapter);
-          expect(optIn.issues.some((i) => i.code === "PROTECTED")).toBe(false);
+          expect(optIn.issues.some((i) => i.code === "PROTECTED" && i.hook === "sector-special-nonzero")).toBe(false);
         }
       }),
       { numRuns: RUNS },

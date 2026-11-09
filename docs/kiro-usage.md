@@ -22,7 +22,8 @@
 
 | Hook | 触发条件 | 动作 | 拦下过什么 |
 | :--- | :--- | :--- | :--- |
-| | | | |
+| Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。2026-11-09 在实现写入护栏的会话里用 Kiro 的 createHook 创建，Kiro 提示下次会话开始才生效，所以这次会话里没有触发过。手动运行同一条命令，生成的 `records.ts` 与已提交的版本相同 |
+| Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。与上一条同时创建，同样在这次会话里没有触发过。手动运行通过。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
 
 ## Steering
 
@@ -42,6 +43,14 @@
 | :--- | :--- | :--- | :--- | :--- |
 | 2026-11-09 | patch-engine Property 3（I-4 的 `set` 幂等） | 生成样本，缩减 6 次：`op0` 选 `where x ne -202 且 angle 在 [-202, 0]` 改 `flags`，`op1` 选 `all` 把 `x` 设为 23402。第一次应用 `op0` 匹配 0 条，对输出再应用匹配 1 条，`flags` 被改 | 不是引擎缺陷。选择器按当前输入求值，后一操作读取前一操作写入的字段时，第二次会选中新记录，属性本身写得过宽 | 未改引擎。design.md 的 Property 3 加上"没有跨操作读取"的前提，测试相应过滤；回归用例 `P3-1`。与 patch-engine 实现同一次提交 |
 | 2026-11-09 | patch-engine Property 3（I-4 的 `set` 幂等） | Freedoom 夹具，缩减 24 次：`pin MAP01 #0`，`special` 设为 1、`tag` 设为 -32768。再应用时报 `PROTECTED` | `sector-special-nonzero` 按规则拦截"旧值非零"的 `special`，第一次写入的 1 在第二次就是旧值 | 保护不放宽。Property 3 改为：未 opt-in 时只允许这条 `PROTECTED`，opt-in 后结果与第一次相同；回归用例 `P3-2`。与 patch-engine 实现同一次提交 |
+
+加入写入护栏后，已有的属性测试和回归用例有 15 条失败，都不是护栏或引擎的缺陷，而是测试里的写入落在了新规则上。护栏没有放宽，只调整了测试：
+
+| 日期 | 不变量 | 触发样本 | 根因 | 修复提交 |
+| :--- | :--- | :--- | :--- | :--- |
+| 2026-11-09 | patch-engine Property 4（选择器）、Property 5（pin） | 生成样本：用来标记匹配结果的 `floorheight` 设为 0，扇区原天花板低于 0，报 `CEILING_BELOW_FLOOR`；Freedoom 夹具：标记写入 `Thing.x` 落在玩家出生点上，报 `PROTECTED` | 标记写入本身触发了 `sector-heights` 和 `thing-player-start` | Sector 的标记字段改为 `lightlevel`，补丁放行全部拦截钩子。与写入护栏同一次提交 |
+| 2026-11-09 | patch-engine Property 8（事务性）的 special 注入 | Freedoom 夹具：opt-in `sector-special-nonzero` 后，补丁的其余操作写到玩家出生点，仍有 `PROTECTED` | 断言写成了“opt-in 后没有任何 `PROTECTED`” | 断言改为只看 `sector-special-nonzero` 这一条。同一次提交 |
+| 2026-11-09 | 回归用例 P3-1、PE-3、PE-4 和 record-source 的 unchanged 用例 | 写入 `BLOOD1`、`CEIL1`、`door` 的固定样本里没有 Flat，报 `UNKNOWN_FLAT`；P3-1 把类型设为 -32768，报 `UNKNOWN_THING_TYPE` | 样本不带 Flat，也没有基础 IWAD | PE-3、PE-4 和 unchanged 用例改用带这些 Flat 的基础 IWAD；P3-1 去掉与选择器语义无关的 `type` 写入。同一次提交 |
 
 ## 自定义 Agent 和其他实验
 

@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Typecheck on save",
+      "trigger": "PostFileSave",
+      "description": "保存 packages/*/src 下的 TypeScript 文件后对整个工作区运行 typecheck",
+      "matcher": "packages[\\\\/][^\\\\/]+[\\\\/]src[\\\\/].*\\.ts$",
+      "action": {
+        "type": "command",
+        "command": "pnpm -r typecheck",
+        "timeout": 180
+      }
+    }
+  ]
+}

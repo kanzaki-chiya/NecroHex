@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "name": "Haunted House",
+  "target": { "format": "wad", "maps": ["MAP01", "MAP02"] },
+  "operations": [
+    {
+      "id": "dim-lights",
+      "select": { "record": "Sector", "where": { "lightlevel": { "gte": 128 } } },
+      "change": { "lightlevel": { "scale": 0.5, "clamp": [32, 255] } }
+    },
+    {
+      "id": "strobe-lamps",
+      "select": {
+        "record": "Sector",
+        "where": { "ceilingpic": { "in": ["TLITE6_1", "TLITE6_4", "TLITE6_5", "TLITE6_6"] }, "special": { "eq": 0 } }
+      },
+      "change": { "special": { "set": 2 } }
+    },
+    {
+      "id": "blood-floors",
+      "select": { "record": "Sector", "where": { "floorpic": { "in": ["FWATER1", "FWATER2", "FWATER3", "FWATER4"] } } },
+      "change": { "floorpic": { "set": "BLOOD1" } }
+    },
+    {
+      "id": "blood-damage",
+      "select": {
+        "record": "Sector",
+        "where": { "floorpic": { "in": ["FWATER1", "FWATER2", "FWATER3", "FWATER4"] }, "special": { "eq": 0 } }
+      },
+      "change": { "special": { "set": 7 } }
+    },
+    {
+      "id": "strobe-start-map01",
+      "select": { "record": "Sector", "pin": { "map": "MAP01", "expectedIndex": 0 } },
+      "change": { "special": { "set": 3 } }
+    },
+    {
+      "id": "strobe-start-map02",
+      "select": { "record": "Sector", "pin": { "map": "MAP02", "expectedIndex": 0 } },
+      "change": { "special": { "set": 3 } }
+    },
+    {
+      "id": "demons-to-spectres",
+      "select": { "record": "Thing", "where": { "type": { "eq": 3002 } } },
+      "change": { "type": { "set": 58 } }
+    },
+    {
+      "id": "zombiemen-to-imps",
+      "select": { "record": "Thing", "where": { "type": { "eq": 3004 } } },
+      "change": { "type": { "set": 3001 } }
+    },
+    {
+      "id": "lamps-to-red-firesticks",
+      "select": { "record": "Thing", "where": { "type": { "eq": 2028 } } },
+      "change": { "type": { "set": 46 } }
+    },
+    {
+      "id": "tech-columns-to-skull-poles",
+      "select": { "record": "Thing", "where": { "type": { "eq": 48 } } },
+      "change": { "type": { "set": 27 } }
+    },
+    {
+      "id": "dead-players-to-bloody-mess",
+      "select": { "record": "Thing", "where": { "type": { "eq": 15 } } },
+      "change": { "type": { "set": 10 } }
+    },
+    {
+      "id": "dead-demons-to-gore",
+      "select": { "record": "Thing", "where": { "type": { "eq": 21 } } },
+      "change": { "type": { "set": 24 } }
+    }
+  ]
+}

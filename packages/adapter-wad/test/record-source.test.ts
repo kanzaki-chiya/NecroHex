@@ -2,6 +2,7 @@ import { applyPatch, planPatch } from "@necrohex/core";
 import { describe, expect, it } from "vitest";
 import { buildWad, MAP_DATA_LUMPS, RECORD_LAYOUTS, wadAdapter, WadFile, type LumpInput } from "../src/index.ts";
 import { withFilepos } from "./helpers.ts";
+import { flatsAdapter } from "./patch-helpers.ts";
 
 const empty = new Uint8Array(0);
 
@@ -103,7 +104,8 @@ describe("canRestore", () => {
 
 describe("unchanged", () => {
   it('"door" 写到 DOOR 上为 false，写到 door 加全零尾部上为 true', () => {
-    const src = wadAdapter.open(buildWad({ kind: "PWAD", lumps: map("MAP01", sectors([name("DOOR"), name("door")])) }));
+    // 基础 IWAD 有 Flat DOOR；名称查找不分大小写，所以 "door" 通过 flat-exists
+    const src = flatsAdapter.open(buildWad({ kind: "PWAD", lumps: map("MAP01", sectors([name("DOOR"), name("door")])) }));
     const a = src.writeField(loc("MAP01", 0), "floorpic", "door");
     const b = src.writeField(loc("MAP01", 1), "floorpic", "door");
     expect(a).toMatchObject({ ok: true, unchanged: false });
@@ -156,7 +158,16 @@ describe("钩子 sector-special-nonzero", () => {
   });
 
   it("special 非零的扇区写 special 为 PROTECTED", () => {
-    expect(wadAdapter.hooks.map((h) => [h.name, h.severity])).toEqual([["sector-special-nonzero", "block"]]);
+    expect(wadAdapter.hooks.map((h) => [h.name, h.severity])).toEqual([
+      ["sector-special-nonzero", "block"],
+      ["thing-player-start", "block"],
+      ["thing-teleport-destination", "block"],
+      ["thing-key", "block"],
+      ["thing-boss", "block"],
+      ["thing-category", "block"],
+      ["thing-size-increase", "warn"],
+      ["sector-height-linked", "warn"],
+    ]);
     const r = applyPatch(bytes, patch(), wadAdapter);
     expect(r.ok).toBe(false);
     expect(r.output).toBeUndefined();

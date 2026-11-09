@@ -3,10 +3,11 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { wadAdapter } from "../src/index.ts";
 import { dupMapWad, profile } from "./arbitraries.ts";
-import { RUNS, SAMPLES } from "./patch-helpers.ts";
+import { BLOCK_HOOKS, RUNS, SAMPLES } from "./patch-helpers.ts";
 
 type Rec = "Sector" | "Thing";
-const MARK: Record<Rec, string> = { Sector: "floorheight", Thing: "x" };
+// 标记写入：lightlevel 不涉及 ceilingheight >= floorheight；Thing 的写入可能落在受保护的类型上，所以补丁放行全部拦截钩子
+const MARK: Record<Rec, string> = { Sector: "lightlevel", Thing: "x" };
 
 const json: fc.Arbitrary<unknown> = fc.jsonValue({ maxDepth: 2 });
 
@@ -22,6 +23,7 @@ function pinPatch(record: Rec, map: string, expectedIndex: number, fingerprint?:
     schemaVersion: 1,
     name: "pin",
     target: { format: "wad", maps: "*" },
+    allowProtected: BLOCK_HOOKS,
     operations: [
       { id: "p", select: { record, pin: { map, expectedIndex, ...(fingerprint !== undefined ? { fingerprint } : {}) } }, change: { [MARK[record]]: { set: 0 } } },
     ],

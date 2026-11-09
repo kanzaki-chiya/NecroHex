@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { RECORD_LAYOUTS, wadAdapter, WadFile, type FieldLayout } from "../src/index.ts";
 import { asciiLower, profile } from "./arbitraries.ts";
-import { RUNS, SAMPLES } from "./patch-helpers.ts";
+import { BLOCK_HOOKS, RUNS, SAMPLES } from "./patch-helpers.ts";
 
 type Rec = "Sector" | "Thing";
 type Cond = Record<string, number | string | Array<number | string>>;
@@ -50,8 +50,11 @@ const INT_FIELDS = (record: Rec) =>
   Object.entries(RECORD_LAYOUTS[record].fields as Record<string, FieldLayout>).filter(([, l]) => l.count === 1 && l.type !== "name8").map(([f]) => f);
 const NAME_FIELDS = Object.entries(RECORD_LAYOUTS.Sector.fields as Record<string, FieldLayout>).filter(([, l]) => l.type === "name8").map(([f]) => f);
 
-/** 用来"标记"匹配结果的写入：整数字段 set 0，不触发保护钩子，不受 canRestore 影响。 */
-const MARK: Record<Rec, string> = { Sector: "floorheight", Thing: "x" };
+/**
+ * 用来"标记"匹配结果的写入：整数字段 set 0，不受 canRestore 影响。
+ * Sector 用 lightlevel，不涉及 ceilingheight >= floorheight；Thing 的写入可能落在受保护的类型上，plan 放行全部拦截钩子。
+ */
+const MARK: Record<Rec, string> = { Sector: "lightlevel", Thing: "x" };
 
 function input(bytes: Uint8Array) {
   const p = profile(bytes);
@@ -85,7 +88,7 @@ function input(bytes: Uint8Array) {
 function plan(bytes: Uint8Array, record: Rec, maps: "*" | string[], where: Record<string, Cond> | null, extraOps: unknown[] = []) {
   const select = where ? { record, where } : { record, all: true };
   const ops = [...extraOps, { id: "sel", select, change: { [MARK[record]]: { set: 0 } } }];
-  return planPatch(bytes, { schemaVersion: 1, name: "s", target: { format: "wad", maps }, operations: ops }, wadAdapter);
+  return planPatch(bytes, { schemaVersion: 1, name: "s", target: { format: "wad", maps }, allowProtected: BLOCK_HOOKS, operations: ops }, wadAdapter);
 }
 
 const keys = (r: ReturnType<typeof plan>, id = "sel") => r.changes.filter((c) => c.operationId === id).map((c) => `${c.scope}#${c.index}`);

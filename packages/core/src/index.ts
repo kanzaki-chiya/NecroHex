@@ -1,5 +1,7 @@
 export * from "./span.ts";
 export type {
+  CheckInfo,
+  CheckResult,
   FieldKind,
   FieldValue,
   PatchIssue,
@@ -14,7 +16,9 @@ export type {
   RecordScope,
   RecordSource,
   Selection,
+  StructuralCheck,
   WriteOutcome,
+  WriteRejection,
 } from "./patch/source.ts";
 export type { Change, Condition, ConditionOp, Operation, Patch, Selector } from "./patch/validate.ts";
 export type { Receipt } from "./patch/receipt.ts";

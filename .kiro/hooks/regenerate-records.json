@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Regenerate WAD records",
+      "trigger": "PostFileSave",
+      "description": "保存 packages/adapter-wad/spec/wad.records.yaml 后重新生成 src/generated/records.ts",
+      "matcher": "wad\\.records\\.yaml$",
+      "action": {
+        "type": "command",
+        "command": "pnpm --filter @necrohex/adapter-wad generate",
+        "timeout": 120
+      }
+    }
+  ]
+}
