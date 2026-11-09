@@ -54,7 +54,19 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 ### Kiro 端到端调用记录
 
-还没有。待用户把配置放到 `.kiro/settings/mcp.json`、Kiro 连上服务器之后，在对话里按“查询 MAP01 → 为出生点所在房间之外的一个房间写补丁 → plan_patch → apply_patch → verify_output”调用，再把实际调用和结果记在这里。
+还没有。待 Kiro 连上服务器之后，在对话里按“查询 MAP01 → 为出生点所在房间之外的一个房间写补丁 → plan_patch → apply_patch → verify_output”调用，再把实际调用和结果记在这里。
+
+### 给用户的操作步骤（2026-11-09 更新）
+
+1. 把 `packages/mcp-server/mcp.example.json` 复制为 `.kiro/settings/mcp.json`，保存。按 Kiro 文档，保存后服务器会自动重连，不需要重启。配置里没有 `env`，不需要批准任何环境变量，也不需要设置 `NECROHEX_ENGINE`。
+2. 在 Kiro 面板的 MCP servers 里确认 `necrohex` 已连接；没有连上就右键选 Reconnect，或用 Show MCP Logs 查看。日志第一行写明工作区和引擎，例如 `ready; workspace X:\NecroHex (from pnpm-workspace.yaml); engine C:\Users\…\dsda-doom.exe (from default; …)`。
+3. 开一个新会话，让 Agent 按上面的流程调用。
+
+配置为什么是这样：
+
+- **工作区根目录**：Kiro 的 `mcp.json` 只支持 `${VAR}` 形式的环境变量展开（需要先批准），文档里没有工作区路径变量（查的是 [MCP configuration](https://kiro.dev/docs/mcp/configuration.md)）。所以配置里不设 `NECROHEX_WORKSPACE`。服务器没有 `NECROHEX_WORKSPACE` 时，从入口文件 `packages/mcp-server/src/main.ts` 所在目录向上找 `pnpm-workspace.yaml`，把它所在目录（仓库根目录）当作工作区，不用启动时的当前目录。
+- **入口文件**：`args` 里的 `packages/mcp-server/src/main.ts` 仍是相对路径。它依赖 Kiro 文档写明的“服务器以第一个工作区根文件夹为当前目录启动”（[多根工作区](https://kiro.dev/docs/ide/editor/multi-root-workspaces.md)）。如果 Kiro 换了启动目录，服务器根本起不来，MCP 日志里会看到找不到模块，而不是用错工作区。
+- **引擎**：没有 `NECROHEX_ENGINE` 时，`verify_output` 使用默认安装位置 `%LOCALAPPDATA%\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`；那里没有引擎时返回“引擎未运行”，状态为 `incomplete`，不算通过。结果的 `engine.path` 和 `engine.source` 写明实际用的路径和来源。
 
 ## 属性测试捕获的 Bug
 

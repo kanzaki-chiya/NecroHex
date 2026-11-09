@@ -19,11 +19,13 @@ node packages/cli/src/main.ts revert <patched.wad> <receipt.json> <restored.wad>
 node packages/cli/src/main.ts verify <wad> <out.wad> <receipt.json> [--iwad <iwad>]
 ```
 
-Add `--json` for machine-readable output. Exit codes: 0 success, 1 patch rejected or verification failed or incomplete, 2 usage error. File paths must be inside the workspace (`NECROHEX_WORKSPACE`, default: the current directory), and outputs are never written over an existing file. `verify` runs the engine smoke test only when `NECROHEX_ENGINE` points to a DSDA-Doom executable; without it the result is "incomplete", not a pass.
+Add `--json` for machine-readable output. Exit codes: 0 success, 1 patch rejected or verification failed or incomplete, 2 usage error. File paths must be inside the workspace (`NECROHEX_WORKSPACE`, default: the current directory), and outputs are never written over an existing file. Windows device names such as `NUL` or `COM1.wad`, colons after the drive letter, and path segments ending in a dot or a space are refused on every platform.
+
+`verify` runs the engine smoke test with the DSDA-Doom executable in `NECROHEX_ENGINE`, or, if that is not set, with `%LOCALAPPDATA%\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`. The result names the engine path it used. If no engine is found, the result is "incomplete", not a pass.
 
 ## MCP server
 
-`packages/mcp-server` is a stdio MCP server with five tools: `inspect_wad`, `query_entities`, `plan_patch`, `apply_patch` and `verify_output`. `apply_patch` needs the `planId` returned by `plan_patch` and refuses if the patch or the input changed. There is no tool that writes raw bytes. To use it in Kiro, copy `packages/mcp-server/mcp.example.json` to `.kiro/settings/mcp.json`.
+`packages/mcp-server` is a stdio MCP server with five tools: `inspect_wad`, `query_entities`, `plan_patch`, `apply_patch` and `verify_output`. `apply_patch` needs the `planId` returned by `plan_patch` and refuses if the patch or the input changed. There is no tool that writes raw bytes. Unless `NECROHEX_WORKSPACE` is set, the server uses this repository (the directory with `pnpm-workspace.yaml`) as its workspace. To use it in Kiro, copy `packages/mcp-server/mcp.example.json` to `.kiro/settings/mcp.json`.
 
 Passing checks only tell you what was checked. They do not mean a map can be finished.
 

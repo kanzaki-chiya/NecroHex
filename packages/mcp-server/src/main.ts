@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** NecroHex MCP Server 的 stdio 入口。stdout 只给 MCP 协议，日志写 stderr。 */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { findEngine } from "@necrohex/cli/ops";
 import { createServer } from "./server.ts";
 
 const log = (msg: string) => process.stderr.write(`[necrohex-mcp] ${msg}\n`);
@@ -8,6 +9,7 @@ const log = (msg: string) => process.stderr.write(`[necrohex-mcp] ${msg}\n`);
 process.on("uncaughtException", (e) => log(`uncaught exception: ${e.stack ?? e.message}`));
 process.on("unhandledRejection", (e) => log(`unhandled rejection: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`));
 
-const { server, workspace } = createServer();
+const { server, workspace, workspaceSource } = createServer();
 await server.connect(new StdioServerTransport());
-log(`ready; workspace ${workspace.root}; engine ${process.env["NECROHEX_ENGINE"] ? "configured" : "not configured (verify_output will report the engine as not run)"}`);
+const engine = findEngine();
+log(`ready; workspace ${workspace.root} (from ${workspaceSource}); engine ${engine.path ?? "none"} (from ${engine.source}; checked when verify_output runs)`);

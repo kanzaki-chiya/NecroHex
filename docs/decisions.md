@@ -249,3 +249,12 @@
 | `workspace.ts` 在解析路径之前按语法拒绝（`INVALID_PATH`，`details.rule` 为 `colon`、`device-name` 或 `trailing-dot-or-space`）：盘符之外的冒号；任何一段的文件名主体（第一个点之前、去掉末尾空格）是 `CON`、`PRN`、`AUX`、`NUL`、`COM0`–`COM9`、`LPT0`–`LPT9`、`CONIN$`、`CONOUT$`，不分大小写，带不带扩展名都算；以点或空格结尾的段 | 只按名字判断，不依赖文件系统的回答，所有平台规则一致。`COM` 和 `LPT` 后跟上标 ¹²³ 在 Windows 上也是设备名，一并拒绝。单独的 `.` 段（当前目录）和开头的盘符（`X:`）不算 |
 | 输入路径用同样的规则 | 读 `in.wad:hidden` 会读到附加数据流而不是文件本身，`NUL` 会读到空内容 |
 | 检查发生在任何写入之前，MCP 的 planId 只在 `applied` 之后才作废 | 被拒绝的调用不应该让调用方重新干跑。MCP 测试核对：每个特殊名字分别作为 `outputPath`、`receiptPath`、`fullOutputPath` 都返回结构化错误，工作区文件列表和输入哈希不变，没有附加数据流，之后同一个 planId 仍能成功应用 |
+
+## 2026-11-09：引擎默认位置和 MCP 工作区根目录
+
+| 决定 | 原因 |
+| :--- | :--- |
+| `verify`（CLI 和 `verify_output`）的引擎：`NECROHEX_ENGINE` 非空时用它，即使它指向的文件不存在也不退回默认位置；否则用 `%LOCALAPPDATA%\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`。找不到引擎时仍为“引擎未运行”、状态 `incomplete`。结果的 `engine.path` 和 `engine.source`（`NECROHEX_ENGINE` 或 `default`）写明实际用的路径 | 用户设了环境变量却悄悄换成另一个引擎，会让报告说不清跑的是什么。引擎是本机安装的程序，不是工具参数，所以默认位置写死在服务器里，不让调用方指定 |
+| 测试里“没有引擎”的情况把 `LOCALAPPDATA` 指向一个空的临时目录 | 开发机的默认位置装了引擎，不这样做“没有引擎时不报告通过”的测试就测不到。默认位置有引擎时另有测试核对它被用上、路径写在结果里，以及 `NECROHEX_ENGINE` 指向不存在的文件时不退回默认位置 |
+| `mcp.example.json` 去掉 `env`。MCP Server 的工作区根目录：`NECROHEX_WORKSPACE` 非空时用它；否则从入口文件所在目录向上找 `pnpm-workspace.yaml`，用它所在的目录，不再用当前目录。CLI 不变，仍默认当前目录 | 查了 [Kiro 的 MCP 配置文档](https://kiro.dev/docs/mcp/configuration.md)：`mcp.json` 只有 `${VAR}` 形式的环境变量展开（要先在 “Mcp Approved Env Vars” 里批准），没有工作区路径变量。用环境变量就得要求用户在系统里设置 `NECROHEX_WORKSPACE` 并批准，而入口文件本来就在仓库里，向上找到的就是仓库根目录 |
+| `args` 里的入口文件仍是相对路径 `packages/mcp-server/src/main.ts` | Kiro 文档写明服务器以第一个工作区根文件夹为当前目录启动。这一点不成立时服务器启动失败（找不到模块），不会用错工作区 |

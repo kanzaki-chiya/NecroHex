@@ -15,10 +15,13 @@ const T = { timeout: 60_000 };
 const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
 let ws: string;
+/** 当作没有安装引擎的 %LOCALAPPDATA%，默认位置也找不到引擎。 */
+let noEngine: string;
 function cli(...args: string[]) {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && k !== "NECROHEX_ENGINE") env[k] = v;
   env["NECROHEX_WORKSPACE"] = ws;
+  env["LOCALAPPDATA"] = noEngine;
   const r = spawnSync(process.execPath, [CLI, ...args], { cwd: ws, env, encoding: "utf8" });
   return { code: r.status, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) as Record<string, any> };
 }
@@ -32,11 +35,15 @@ const patch = (level: number) => ({
 
 beforeAll(() => {
   ws = realpathSync.native(mkdtempSync(join(tmpdir(), "necrohex-cli-")));
+  noEngine = realpathSync.native(mkdtempSync(join(tmpdir(), "necrohex-noengine-")));
   copyFileSync(FIXTURE, join(ws, "map.wad"));
   writeFileSync(join(ws, "p.json"), JSON.stringify(patch(100)));
   writeFileSync(join(ws, "bad.json"), JSON.stringify({ schemaVersion: 1, name: "x", target: { format: "wad", maps: "*" }, operations: [] }));
 });
-afterAll(() => rmSync(ws, { recursive: true, force: true }));
+afterAll(() => {
+  rmSync(ws, { recursive: true, force: true });
+  rmSync(noEngine, { recursive: true, force: true });
+});
 
 describe("necrohex CLI", () => {
   it("用法错误退出码为 2", T, () => {
@@ -87,8 +94,13 @@ describe("necrohex CLI", () => {
     const v = cli("verify", "map.wad", "out.wad", "out.receipt.json", "--full", "full.wad", "--json");
     expect(v.code).toBe(1);
     expect(v.json()).toMatchObject({ status: "incomplete", verified: false, engine: { status: "not_run" } });
+    expect(v.json().engine).toMatchObject({ source: "default", path: join(noEngine, "necrohex", "engines", "dsda-doom-0.30.1", "dsda-doom-0.30.1-win-x64", "dsda-doom.exe") });
     const text = cli("verify", "map.wad", "out.wad", "out.receipt.json");
     expect(text.out).toContain("引擎未运行");
+    expect(text.out).toContain("engine path: ");
+    const devices = cli("apply", "map.wad", "p.json", "NUL", "--json");
+    expect(devices.code).toBe(2);
+    expect(devices.json().error.code).toBe("INVALID_PATH");
 
     const r = cli("revert", "full.wad", "out.receipt.json", "back.wad", "--json");
     expect(r.code).toBe(0);

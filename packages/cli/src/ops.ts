@@ -7,6 +7,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   applyPatch,
   bytesHash,
@@ -463,6 +464,22 @@ function mapOfScope(wad: WadFile, scope: string): MapScope | undefined {
 
 const WRITABLE_LUMP: Readonly<Record<string, string>> = { Sector: "SECTORS", Thing: "THINGS" };
 
+/** DSDA-Doom 的默认安装位置，相对 %LOCALAPPDATA%。 */
+export const DEFAULT_ENGINE_SUBPATH = ["necrohex", "engines", "dsda-doom-0.30.1", "dsda-doom-0.30.1-win-x64", "dsda-doom.exe"] as const;
+
+export type EngineSource = "NECROHEX_ENGINE" | "default";
+
+/**
+ * 要用的引擎路径。NECROHEX_ENGINE 非空时用它（即使文件不存在，也不退回默认位置）；
+ * 否则用 %LOCALAPPDATA% 下的默认位置；LOCALAPPDATA 也没有时为 null。只返回路径，存在与否由调用方检查。
+ */
+export function findEngine(env: NodeJS.ProcessEnv = process.env): { path: string | null; source: EngineSource } {
+  const set = env["NECROHEX_ENGINE"];
+  if (set !== undefined && set !== "") return { path: set, source: "NECROHEX_ENGINE" };
+  const local = env["LOCALAPPDATA"];
+  return { path: local === undefined || local === "" ? null : join(local, ...DEFAULT_ENGINE_SUBPATH), source: "default" };
+}
+
 const eqBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 export async function verify(ws: Workspace, args: VerifyArgs) {
@@ -554,14 +571,17 @@ export async function verify(ws: Workspace, args: VerifyArgs) {
     add("pwad-maps", problems.length === 0, problems.length === 0 ? `maps ${pwadMaps.join(", ")}: marker and every data lump present, names and data equal to the patched WAD` : problems.join("; "));
   }
 
-  // 引擎冒烟测试：只有配置了 NECROHEX_ENGINE 才运行；没有运行就不算通过
-  const engine = process.env["NECROHEX_ENGINE"];
+  // 引擎冒烟测试：NECROHEX_ENGINE 优先，没有设置时找默认安装位置；没有运行就不算通过
+  const found = findEngine();
+  const engine = found.path;
   type EngineRun = { map: string; ok: boolean; passed: readonly string[]; failure?: string };
-  let engineReport: { status: "passed" | "failed" | "not_run"; reason: string; runs: EngineRun[] };
-  if (engine === undefined || engine === "") engineReport = { status: "not_run", reason: "引擎未运行 (engine not run): NECROHEX_ENGINE is not set", runs: [] };
-  else if (!existsSync(engine)) engineReport = { status: "not_run", reason: `引擎未运行 (engine not run): NECROHEX_ENGINE points to a missing file`, runs: [] };
-  else if (iwad === undefined) engineReport = { status: "not_run", reason: "引擎未运行 (engine not run): iwadPath is required to run the engine", runs: [] };
-  else if (pwadMaps.length === 0) engineReport = { status: "not_run", reason: "引擎未运行 (engine not run): the PWAD has no maps", runs: [] };
+  let engineReport: { status: "passed" | "failed" | "not_run"; reason: string; path: string | null; source: EngineSource; runs: EngineRun[] };
+  const notRun = (why: string) => ({ status: "not_run" as const, reason: `引擎未运行 (engine not run): ${why}`, path: engine, source: found.source, runs: [] });
+  if (engine === null) engineReport = notRun("NECROHEX_ENGINE is not set and LOCALAPPDATA is not set, so there is no default location to look in");
+  else if (!existsSync(engine)) {
+    engineReport = notRun(found.source === "NECROHEX_ENGINE" ? `NECROHEX_ENGINE points to a missing file ${engine}` : `NECROHEX_ENGINE is not set and the default location ${engine} has no engine`);
+  } else if (iwad === undefined) engineReport = notRun("iwadPath is required to run the engine");
+  else if (pwadMaps.length === 0) engineReport = notRun("the PWAD has no maps");
   else {
     const runs: EngineRun[] = [];
     for (const map of pwadMaps) {
@@ -573,7 +593,13 @@ export async function verify(ws: Workspace, args: VerifyArgs) {
       }
     }
     const ok = runs.every((r) => r.ok);
-    engineReport = { status: ok ? "passed" : "failed", reason: ok ? `the engine loaded the PWAD, ran ${tics} tics on each map and exited with code 0` : "the engine smoke test failed", runs };
+    engineReport = {
+      status: ok ? "passed" : "failed",
+      reason: ok ? `the engine loaded the PWAD, ran ${tics} tics on each map and exited with code 0` : "the engine smoke test failed",
+      path: engine,
+      source: found.source,
+      runs,
+    };
   }
 
   const anyFailed = checks.some((c) => c.status === "failed") || engineReport.status === "failed";

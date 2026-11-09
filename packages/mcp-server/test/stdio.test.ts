@@ -20,11 +20,18 @@ const T = { timeout: 120_000 };
 
 const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
-/** 不含 NECROHEX_ENGINE 的环境，另加工作区。 */
-function envFor(workspace: string, extra: Record<string, string> = {}): Record<string, string> {
+/** 一个空目录，当作没有安装引擎的 %LOCALAPPDATA%。 */
+const EMPTY_LOCALAPPDATA = realpathSync.native(mkdtempSync(join(tmpdir(), "necrohex-noengine-")));
+afterAll(() => rmSync(EMPTY_LOCALAPPDATA, { recursive: true, force: true }));
+
+/**
+ * 不含 NECROHEX_ENGINE 的环境，LOCALAPPDATA 指向空目录（默认位置也没有引擎），另加工作区。
+ * workspace 为 null 时不设置 NECROHEX_WORKSPACE。
+ */
+function envFor(workspace: string | null, extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && k !== "NECROHEX_ENGINE" && k !== "NECROHEX_WORKSPACE") env[k] = v;
-  return { ...env, NECROHEX_WORKSPACE: workspace, ...extra };
+  return { ...env, LOCALAPPDATA: EMPTY_LOCALAPPDATA, ...(workspace === null ? {} : { NECROHEX_WORKSPACE: workspace }), ...extra };
 }
 
 interface Session {
@@ -34,8 +41,8 @@ interface Session {
   close(): Promise<void>;
 }
 
-async function connect(workspace: string, extraEnv: Record<string, string> = {}): Promise<Session> {
-  const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], cwd: workspace, env: envFor(workspace, extraEnv), stderr: "pipe" });
+async function connect(workspace: string | null, extraEnv: Record<string, string> = {}, cwd: string = workspace ?? tmpdir()): Promise<Session> {
+  const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], cwd, env: envFor(workspace, extraEnv), stderr: "pipe" });
   let err = "";
   transport.stderr?.on("data", (d: Buffer) => (err += d.toString()));
   const client = new Client({ name: "necrohex-test", version: "0.0.0" });
@@ -261,6 +268,8 @@ describe("MCP Server over stdio（无引擎）", () => {
     expect(v.body.verified).toBe(false);
     expect(v.body.engine.status).toBe("not_run");
     expect(v.body.engine.reason).toContain("引擎未运行");
+    // 没有 NECROHEX_ENGINE 时查找的是默认位置，并写出了实际查找的路径
+    expect(v.body.engine).toMatchObject({ source: "default", path: join(EMPTY_LOCALAPPDATA, "necrohex", "engines", "dsda-doom-0.30.1", "dsda-doom-0.30.1-win-x64", "dsda-doom.exe") });
     expect(v.body.checks.filter((c: { status: string }) => c.status !== "passed")).toEqual([]);
     expect(JSON.stringify(v.body)).not.toMatch(/guarantee|playable|保证|可玩/i);
 
@@ -282,8 +291,53 @@ describe("MCP Server over stdio（无引擎）", () => {
   });
 });
 
+describe("MCP Server 的工作区根目录", () => {
+  it("没有 NECROHEX_WORKSPACE 时，从入口文件向上找 pnpm-workspace.yaml，不用启动时的当前目录", T, async () => {
+    const elsewhere = realpathSync.native(mkdtempSync(join(tmpdir(), "necrohex-cwd-")));
+    const s = await connect(null, {}, elsewhere);
+    try {
+      const r = await s.call("inspect_wad", { path: "packages/adapter-wad/fixtures/freedoom/freedoom2-map01-02.wad" });
+      expect(r.isError).toBe(false);
+      expect(r.body.maps.map((m: { name: string }) => m.name)).toEqual(["MAP01", "MAP02"]);
+      expect(s.stderr()).toContain("(from pnpm-workspace.yaml)");
+      expect(s.stderr()).toContain(`workspace ${realpathSync.native(REPO)}`);
+    } finally {
+      await s.close();
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
+
 const engine = process.env["NECROHEX_ENGINE"];
 const haveEngine = engine !== undefined && engine !== "" && existsSync(engine) && existsSync(CACHE_IWAD);
+const realLocal = process.env["LOCALAPPDATA"];
+const defaultEngine = realLocal ? join(realLocal, "necrohex", "engines", "dsda-doom-0.30.1", "dsda-doom-0.30.1-win-x64", "dsda-doom.exe") : "";
+const haveDefault = defaultEngine !== "" && existsSync(defaultEngine) && existsSync(CACHE_IWAD);
+
+describe.skipIf(!haveDefault)("MCP Server over stdio（默认位置有引擎）", () => {
+  it("没有 NECROHEX_ENGINE 时用默认位置的引擎，结果写出路径；NECROHEX_ENGINE 指向不存在的文件时不退回默认位置", T, async () => {
+    const ws = newWorkspace();
+    mkdirSync(join(ws, "iwad"));
+    copyFileSync(CACHE_IWAD, join(ws, "iwad", "freedoom2.wad"));
+    const s = await connect(ws, { LOCALAPPDATA: realLocal! });
+    const missing = await connect(ws, { LOCALAPPDATA: realLocal!, NECROHEX_ENGINE: join(ws, "no-such-engine.exe") });
+    try {
+      const { body: p } = await s.call("plan_patch", { inputPath: "map.wad", patch: lightPatch(100) });
+      await s.call("apply_patch", { inputPath: "map.wad", patch: lightPatch(100), outputPath: "out.wad", planId: p.planId });
+      const args = { inputPath: "map.wad", outputPath: "out.wad", receiptPath: "out.receipt.json", iwadPath: "iwad/freedoom2.wad" };
+      const v = await s.call("verify_output", args);
+      expect(v.body.engine).toMatchObject({ status: "passed", source: "default", path: defaultEngine });
+      expect(v.body.status).toBe("passed");
+      const m = await missing.call("verify_output", args);
+      expect(m.body.engine).toMatchObject({ status: "not_run", source: "NECROHEX_ENGINE", path: join(ws, "no-such-engine.exe") });
+      expect(m.body.status).toBe("incomplete");
+    } finally {
+      await s.close();
+      await missing.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
 
 describe.skipIf(!haveEngine)("MCP Server over stdio（配置了 NECROHEX_ENGINE）", () => {
   it("verify_output 跑引擎冒烟测试，引擎通过且不变量通过时为 passed", T, async () => {
@@ -295,7 +349,7 @@ describe.skipIf(!haveEngine)("MCP Server over stdio（配置了 NECROHEX_ENGINE�
       const { body: p } = await s.call("plan_patch", { inputPath: "map.wad", patch: lightPatch(100) });
       await s.call("apply_patch", { inputPath: "map.wad", patch: lightPatch(100), outputPath: "out.wad", planId: p.planId });
       const v = await s.call("verify_output", { inputPath: "map.wad", outputPath: "out.wad", receiptPath: "out.receipt.json", iwadPath: "iwad/freedoom2.wad" });
-      expect(v.body.engine.status).toBe("passed");
+      expect(v.body.engine).toMatchObject({ status: "passed", source: "NECROHEX_ENGINE", path: engine });
       expect(v.body.engine.runs).toEqual([expect.objectContaining({ map: "MAP01", ok: true })]);
       expect(v.body.status).toBe("passed");
       expect(v.body.note).toContain("do not show that the map can be finished");

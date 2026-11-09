@@ -3,9 +3,6 @@
     "necrohex": {
       "command": "node",
       "args": ["packages/mcp-server/src/main.ts"],
-      "env": {
-        "NECROHEX_ENGINE": "${NECROHEX_ENGINE}"
-      },
       "disabled": false,
       "autoApprove": []
     }

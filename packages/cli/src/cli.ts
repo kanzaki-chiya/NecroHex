@@ -16,7 +16,9 @@ export const USAGE = `usage: necrohex <command> [options] [--json]
   verify  <input.wad> <out.wad> <receipt.json> [--full <path>] [--iwad <wad>] [--tics N]
 
 Paths must be inside the workspace (NECROHEX_WORKSPACE, default: the current directory).
-Outputs must not exist yet; nothing is ever overwritten. verify runs the engine only when NECROHEX_ENGINE is set.
+Outputs must not exist yet; nothing is ever overwritten. Windows device names (NUL, CON, COM1 ...), colons after the drive
+letter and path segments ending in a dot or space are refused. verify runs the engine from NECROHEX_ENGINE, or else from
+%LOCALAPPDATA%\\necrohex\\engines\\dsda-doom-0.30.1\\dsda-doom-0.30.1-win-x64\\dsda-doom.exe; if neither exists it reports "engine not run".
 Exit codes: 0 success, 1 patch rejected or verification failed or incomplete, 2 usage error.`;
 
 export interface CliIo {
@@ -133,8 +135,9 @@ function lines(command: string, r: Report): string[] {
   } else if (command === "verify") {
     out.push(`status: ${r["status"]}`);
     for (const c of r["checks"] as Array<{ name: string; status: string; detail: string }>) out.push(`${c.status}: ${c.name} - ${c.detail}`);
-    const e = r["engine"] as { status: string; reason: string; runs: Array<{ map: string; ok: boolean; passed: string[]; failure?: string }> };
+    const e = r["engine"] as { status: string; reason: string; path: string | null; source: string; runs: Array<{ map: string; ok: boolean; passed: string[]; failure?: string }> };
     out.push(`engine ${e.status}: ${e.reason}`);
+    out.push(`engine path: ${e.path ?? "none"} (from ${e.source})`);
     for (const run of e.runs) out.push(`  ${run.map}: ${run.ok ? "passed" : `FAILED (${run.failure})`}${run.passed.length ? ` - ${run.passed.join("; ")}` : ""}`);
     out.push(String(r["note"]));
   }

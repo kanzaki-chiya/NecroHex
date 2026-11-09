@@ -1,7 +1,7 @@
 /**
  * NecroHex MCP Server：恰好五个工具 inspect_wad、query_entities、plan_patch、apply_patch、verify_output（docs/design.md 第 12 节）。
  * 每个工具都是 @necrohex/cli/ops 的薄封装，补丁逻辑全部在引擎里。
- * 没有写裸字节、按偏移写入或执行任意命令的工具。引擎路径来自服务器的环境变量 NECROHEX_ENGINE，不是工具参数。
+ * 没有写裸字节、按偏移写入或执行任意命令的工具。引擎路径来自服务器的环境变量 NECROHEX_ENGINE，没有设置时用默认安装位置，不是工具参数。
  * apply_patch 只接受本服务器 plan_patch 发出、且补丁、输入和基础 IWAD 都没有变的 planId；每个 planId 只能用一次。
  * 错误一律以结构化结果返回（isError: true），不让服务器退出。日志只写 stderr，stdout 只给 MCP 协议。
  */
@@ -10,7 +10,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { errorJson, toToolError, ToolError } from "@necrohex/cli/errors";
 import { apply, inspect, plan, query, verify } from "@necrohex/cli/ops";
-import { openWorkspace, type Workspace } from "@necrohex/cli/workspace";
+import { findPnpmWorkspaceRoot, openWorkspace, type Workspace } from "@necrohex/cli/workspace";
 
 export const TOOL_NAMES = ["inspect_wad", "query_entities", "plan_patch", "apply_patch", "verify_output"] as const;
 
@@ -36,12 +36,24 @@ const patchArgs = {
 };
 
 export interface ServerOptions {
-  /** 工作区根目录；默认 NECROHEX_WORKSPACE，再默认当前目录。 */
+  /** 工作区根目录；默认 NECROHEX_WORKSPACE，再默认本仓库（向上找 pnpm-workspace.yaml）。 */
   readonly root?: string;
 }
 
-export function createServer(options: ServerOptions = {}): { server: McpServer; workspace: Workspace } {
-  const ws = openWorkspace(options.root === undefined ? {} : { root: options.root });
+/**
+ * 工作区根目录：options.root，其次 NECROHEX_WORKSPACE，否则从本文件所在目录向上找 pnpm-workspace.yaml。
+ * 不用当前目录：Kiro 的 mcp.json 没有工作区路径变量，服务器的当前目录取决于启动它的程序。
+ */
+export function workspaceRoot(options: ServerOptions = {}): { root: string; source: "option" | "NECROHEX_WORKSPACE" | "pnpm-workspace.yaml" } {
+  if (options.root !== undefined) return { root: options.root, source: "option" };
+  const env = process.env["NECROHEX_WORKSPACE"];
+  if (env !== undefined && env !== "") return { root: env, source: "NECROHEX_WORKSPACE" };
+  return { root: findPnpmWorkspaceRoot(import.meta.dirname), source: "pnpm-workspace.yaml" };
+}
+
+export function createServer(options: ServerOptions = {}): { server: McpServer; workspace: Workspace; workspaceSource: string } {
+  const where = workspaceRoot(options);
+  const ws = openWorkspace({ root: where.root });
   const server = new McpServer({ name: "necrohex", version: "0.0.0" }, { capabilities: { tools: {} } });
   /** 本进程发出的、还没有用掉的 planId。服务器重启后全部失效。 */
   const issued = new Set<string>();
@@ -137,7 +149,7 @@ export function createServer(options: ServerOptions = {}): { server: McpServer; 
     {
       title: "Verify a patched output",
       description:
-        "Check the invariants of an apply_patch result: receipt hashes, locality (I-3), revert (I-4) and PWAD map completeness. Runs the engine smoke test when the server has NECROHEX_ENGINE set and iwadPath is given. " +
+        "Check the invariants of an apply_patch result: receipt hashes, locality (I-3), revert (I-4) and PWAD map completeness. Runs the engine smoke test when iwadPath is given and the engine exists (NECROHEX_ENGINE on the server, otherwise %LOCALAPPDATA%\\necrohex\\engines\\dsda-doom-0.30.1\\dsda-doom-0.30.1-win-x64\\dsda-doom.exe); the result names the engine path used. " +
         "If the engine did not run the status is incomplete, not passed. No result means the map can be finished.",
       inputSchema: {
         inputPath: path.describe("The original input given to apply_patch."),
@@ -152,5 +164,5 @@ export function createServer(options: ServerOptions = {}): { server: McpServer; 
     async (a) => run("verify_output", () => verify(ws, a)),
   );
 
-  return { server, workspace: ws };
+  return { server, workspace: ws, workspaceSource: where.source };
 }
