@@ -110,15 +110,16 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 6. **`verify_output`**，参数 `{ inputPath: freedoom2.wad, outputPath: "out/kiro-e2e.wad", receiptPath: "out/kiro-e2e.receipt.json", iwadPath: freedoom2.wad }`。结果 `status: passed`，`verified: true`。
    - `receipt-input-hash`、`receipt-replay`、`locality (I-3)`、`revert (I-4)`、`pwad-maps` 都是 passed；`full-output-hash` 是 skipped，因为没有传 `fullOutputPath`。
-   - 引擎真的运行了：`engine.status: passed`，路径 `C:\Users\Administrator\AppData\Local\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`，source `default`。MAP01 跑了 350 tic，60 秒内结束，退出码 0。
+   - 引擎真的运行了：`engine.status: passed`，路径 `%LOCALAPPDATA%\necrohex\engines\dsda-doom-0.30.1\dsda-doom-0.30.1-win-x64\dsda-doom.exe`，source `default`。MAP01 跑了 350 tic，60 秒内结束，退出码 0。
    - 工具自己注明，这些检查不说明地图能通关。
+   - 之后进游戏确认：#12 的地板确实变成了 `FLOOR5_2`，但 `special` 8 看不出效果，因为相邻的 #13、#15 亮度都是 255，比 #12 的 160 高。
 
 `out/` 被 `.gitignore` 忽略，输出文件没有提交。
 
 ### 给用户的操作步骤（2026-11-09 更新）
 
 1. 把 `packages/mcp-server/mcp.example.json` 复制为 `.kiro/settings/mcp.json`，保存。按 Kiro 文档，保存后服务器会自动重连，不需要重启。配置里没有 `env`，不需要批准任何环境变量，也不需要设置 `NECROHEX_ENGINE`。
-2. 在 Kiro 面板的 MCP servers 里确认 `necrohex` 已连接；没有连上就右键选 Reconnect，或用 Show MCP Logs 查看。日志第一行写明工作区和引擎，例如 `ready; workspace X:\NecroHex (from pnpm-workspace.yaml); engine C:\Users\…\dsda-doom.exe (from default; …)`。
+2. 在 Kiro 面板的 MCP servers 里确认 `necrohex` 已连接；没有连上就右键选 Reconnect，或用 Show MCP Logs 查看。日志第一行写明工作区和引擎，例如 `ready; workspace X:\NecroHex (from pnpm-workspace.yaml); engine %LOCALAPPDATA%\necrohex\engines\…\dsda-doom.exe (from default; …)`。
 3. 开一个新会话，让 Agent 按上面的流程调用。
 
 配置为什么是这样：
