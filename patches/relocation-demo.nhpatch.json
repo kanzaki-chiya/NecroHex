@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "name": "Relocation Demo",
+  "target": { "format": "wad", "maps": ["MAP01"] },
+  "operations": [
+    {
+      "id": "blood-channel-map01",
+      "select": {
+        "record": "Sector",
+        "pin": {
+          "map": "MAP01",
+          "expectedIndex": 19,
+          "fingerprint": {
+            "tag": 0,
+            "floorpic": "AQF075",
+            "ceilingpic": "AQF024",
+            "heights": [-64, 24],
+            "centroid": [560, -160],
+            "bbox": [544, -320, 576, 0],
+            "area": 4096,
+            "lineCount": 8
+          }
+        }
+      },
+      "change": { "floorpic": { "set": "BLOOD1" } }
+    }
+  ]
+}

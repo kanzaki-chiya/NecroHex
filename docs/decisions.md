@@ -200,3 +200,12 @@
 | haunted-house 的 `strobe-start-map01` 把 MAP01 #0 的 `special` 从 3 改为 1 | special 3 是慢速频闪：暗相位 35 tic、亮相位 5 tic，出生点 7/8 的时间停在暗相位，画面太暗。special 1 是随机闪烁：原版的 `T_LightFlash` 亮相位持续 `(P_Random() & 64) + 1` 即 1 或 65 tic，暗相位持续 `(P_Random() & 7) + 1` 即 1 到 8 tic，平均约 88% 的时间是亮的 |
 | 保留这条改动，不换成别的特效 | 随机闪烁的暗相位取相邻扇区里最暗的亮度，没有更暗的邻居时看不出变化。补丁应用后 #0 的亮度是 100（144 × 0.7），相邻的 #8 是 78（112 × 0.7），所以闪烁在 100 和 78 之间，能看出变化。上一版选频闪的理由（一定能看出变化）在这里同样成立，暗的时间却短得多 |
 | 重新生成 `out/haunted-house.wad` 和回执，MAP01、MAP02 各跑一次引擎冒烟测试 | 两张图都通过：DSDA-Doom 0.30.1 载入 PWAD，跑完 350 tic，以 0 退出。回执里这条记录为 `special` 0 → 1，`selection` 为 `EXACT`、相似度 1。冒烟测试只说明引擎能载入并运行，闪烁的观感没有在画面上确认 |
+
+## 2026-11-09：真实的 RELOCATED 演示
+
+| 决定 | 原因 |
+| :--- | :--- |
+| 新增 `patches/relocation-demo.nhpatch.json`：pin MAP01 #19，指纹取自 Freedoom 0.12.1，把地板改为 `BLOOD1` | 修复后的重定位报告里，0.12.1 → 0.13.0 的 MAP01 #19 → #42 仍是 `RELOCATED`，相似度 1，对照一（边界线段坐标完全相同）一致，面积覆盖率 1。#19 原来的地板是 `AQF075`，换成血池贴图能直接看出来；只改贴图，不改高度和特效，不触发护栏 |
+| 在 0.13.0 上用 `scripts/apply-patch.ts` 应用并导出 `out/relocation-demo.wad`，跑 MAP01 的引擎冒烟测试 | 输出 `pin blood-channel-map01: RELOCATED - MAP01 Sector #19 → #42`；回执的条目为 `index` 42、`floorpic` `AQF075` → `BLOOD1`，`selection` 为 `RELOCATED`、`expectedIndex` 19、相似度 1。冒烟测试通过：DSDA-Doom 0.30.1 载入 PWAD，在 MAP01 上跑完 350 tic，以 0 退出 |
+| 同一补丁在 0.12.1 上为 `EXACT` #19 | 指纹就是从 0.12.1 的 #19 算出来的 |
+| 没有在画面上确认血池贴图出现在 #42 的位置 | 冒烟测试无窗口运行，只检查载入、运行 tic 数和退出码 |
