@@ -237,6 +237,38 @@ describe("可玩性护栏：带 tag 或被线段触发的扇区改高度时警�
   });
 });
 
+describe("可玩性护栏：没有更暗邻居的灯光特效（sector-light-effect-invisible）", () => {
+  const HOOK = "sector-light-effect-invisible";
+  const ofHook = (r: { warnings: PatchIssue[] }) => r.warnings.filter((w) => w.hook === HOOK);
+
+  it("Freedoom MAP01 #12（亮度 160，邻居 #13、#15 都是 255）设 special 8：警告，不拒绝", () => {
+    const r = applyPatch(FIXTURE, patchOf([op("Sector", 12, { special: { set: 8 } })]), wadAdapter);
+    expect(r.ok).toBe(true);
+    expect(r.output).toBeDefined();
+    expect(r.warnings).toEqual([expect.objectContaining({ code: "WARNING", hook: HOOK, operationId: "w", locator: { scope: "MAP01", record: "Sector", index: 12 }, field: "special" })]);
+    expect(r.warnings[0]!.message).toContain("Sector #12 has special 8 (glow) and lightlevel 160 after the patch");
+    expect(r.warnings[0]!.message).toContain("darkest neighbour #13 has lightlevel 255");
+    expect(r.checks.find((c) => c.name === HOOK)!.status).toBe("warned");
+  });
+
+  it("有更暗邻居的扇区不触发：MAP01 #4（亮度 208，邻居 #0、#3 是 144）设 special 8", () => {
+    const r = applyPatch(FIXTURE, patchOf([op("Sector", 4, { special: { set: 8 } })]), wadAdapter);
+    expect(r.ok).toBe(true);
+    expect(ofHook(r)).toEqual([]);
+    expect(r.checks.find((c) => c.name === HOOK)!.status).toBe("passed");
+  });
+
+  it("按补丁之后的亮度算：同一补丁把邻居 #13 调到 100 后，#12 不再触发", () => {
+    const r = applyPatch(FIXTURE, patchOf([op("Sector", 12, { special: { set: 8 } }), { ...op("Sector", 13, { lightlevel: { set: 100 } }), id: "dim13" }]), wadAdapter);
+    expect(r.ok).toBe(true);
+    expect(ofHook(r)).toEqual([]);
+    // 反过来，把 #12 自己调到不高于最暗邻居也会触发
+    const self = applyPatch(FIXTURE, patchOf([op("Sector", 4, { special: { set: 8 }, lightlevel: { set: 144 } })]), wadAdapter);
+    expect(ofHook(self)).toEqual([expect.objectContaining({ locator: { scope: "MAP01", record: "Sector", index: 4 }, field: "special" })]);
+    expect(ofHook(self)[0]!.message).toContain("lightlevel 144 after the patch, but its darkest neighbour #0 has lightlevel 144");
+  });
+});
+
 describe("检查报告", () => {
   it("列出每项检查和结果，不声称可玩", () => {
     const r = planPatch(wad("MAP01", { sectors: [{}] }), patchOf([op("Sector", 0, { lightlevel: { set: 64 } })]), wadAdapter);
@@ -280,14 +312,18 @@ describe("Freedoom 夹具", () => {
     expect(r.issues).toEqual([expect.objectContaining({ code: "PROTECTED", hook: "thing-player-start", locator: { scope: "MAP01", record: "Thing", index }, field: "angle" })]);
   });
 
-  it("patches/haunted-house.nhpatch.json：基础 IWAD 提供 BLOOD1 时通过全部检查、没有警告，撤销后逐字节还原", () => {
+  it("patches/haunted-house.nhpatch.json：基础 IWAD 提供 BLOOD1 时通过全部检查、只有 1 条灯光特效警告，撤销后逐字节还原", () => {
     const patch = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../patches/haunted-house.nhpatch.json"), "utf8")) as unknown;
     // 夹具只含地图，不带 Flat
     expect(only(applyPatch(FIXTURE, patch, wadAdapter).issues, "VALUE_REJECTED").every((i) => i.reason === "UNKNOWN_FLAT")).toBe(true);
     const r = applyPatch(FIXTURE, patch, flatsAdapter);
     expect(r.issues).toEqual([]);
-    expect(r.warnings).toEqual([]);
-    expect(r.checks.every((c) => c.status === "passed")).toBe(true);
+    // MAP01 #39 原有 special 8，变暗后亮度 89，最暗邻居 #40 为 134，仍然没有更暗的邻居
+    expect(r.warnings).toEqual([
+      expect.objectContaining({ hook: "sector-light-effect-invisible", operationId: "dim-lights", locator: { scope: "MAP01", record: "Sector", index: 39 }, field: "lightlevel" }),
+    ]);
+    expect(r.warnings[0]!.message).toContain("lightlevel 89 after the patch, but its darkest neighbour #40 has lightlevel 134");
+    expect(r.checks.filter((c) => c.status !== "passed").map((c) => [c.name, c.status])).toEqual([["sector-light-effect-invisible", "warned"]]);
     // MAP01 玩家出生点所在的 #0 扇区改为随机闪烁（special 1）：大部分时间保持亮相位，偶尔闪暗；MAP02 #0 不改
     expect(r.changes).toContainEqual(expect.objectContaining({ scope: "MAP01", record: "Sector", index: 0, field: "special", newValue: 1 }));
     // 这个 pin 带指纹，在夹具上按指纹校验通过

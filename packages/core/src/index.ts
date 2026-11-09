@@ -5,6 +5,7 @@ export type {
   FieldKind,
   FieldValue,
   FingerprintProblem,
+  HookFinding,
   PatchIssue,
   PatchIssueCode,
   PinResolution,

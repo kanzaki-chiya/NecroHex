@@ -162,6 +162,18 @@ export interface ProtectionHook {
   readonly description?: string;
   /** 触发时返回说明，否则返回 null。context 是 RecordSource.hookContext。 */
   check(change: ProposedChange, reader: RecordReader, context?: unknown): string | null;
+  /**
+   * 可选的整体检查，用于取决于多条改动写入后取值的规则。在逐条 check 之后调用一次。
+   * changes 是全部参与写入的拟议改动；after 读出这些改动全部写入后的值，其余字段为输入值。
+   * 每条结果挂在 changes 中的一条改动上（必须是同一个对象），按 severity 报告为警告或拦截。
+   */
+  checkPatch?(changes: readonly ProposedChange[], after: RecordReader, context?: unknown): readonly HookFinding[];
+}
+
+/** checkPatch 的一条结果。 */
+export interface HookFinding {
+  readonly change: ProposedChange;
+  readonly message: string;
 }
 
 /**

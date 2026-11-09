@@ -1,18 +1,23 @@
 /**
  * WAD 的可玩性护栏（docs/design.md 第 8 节）：补丁引擎在写入前对每个拟议改动运行这些钩子。
  * block 类默认拒绝，补丁在 allowProtected 中写出钩子名才放行；warn 类只报告。
- * 钩子看到的是输入值，只检查新写入的改动，不因地图里已有的非常规数据报错。
+ * 逐条的 check 看到的是输入值；sector-light-effect-invisible 用 checkPatch 看补丁之后的值。
+ * 只检查补丁触及的记录，不因地图里已有的非常规数据报错。
  * 通过这些检查只说明这些规则没有触发，不说明地图可以通关。
  */
-import type { ProposedChange, ProtectionHook, RecordReader } from "@necrohex/core";
+import type { HookFinding, ProposedChange, ProtectionHook, RecordReader } from "@necrohex/core";
 import { mapBossTypes, SOLID_CATEGORIES, thingInfo } from "./thing-types.ts";
 import { NO_INDEX, type MapScope, type WadFile } from "./wad.ts";
+
+/** Linedef.flags 的双面标志。 */
+const ML_TWOSIDED = 4;
 
 /** record-source 交给钩子的上下文：读取只读记录（LINEDEFS、SIDEDEFS）推导扇区的触发关系。 */
 export class WadHookContext {
   readonly #wad: WadFile;
   readonly #scopes: ReadonlyMap<string, MapScope>;
   readonly #linked = new Map<string, ReadonlySet<number>>();
+  readonly #neighbors = new Map<string, readonly ReadonlySet<number>[]>();
 
   constructor(wad: WadFile, scopes: ReadonlyMap<string, MapScope>) {
     this.#wad = wad;
@@ -44,6 +49,35 @@ export class WadHookContext {
       }
     }
     this.#linked.set(scope, out);
+    return out;
+  }
+
+  /**
+   * 每个扇区的邻居：带双面标志（ML_TWOSIDED，flags & 4）、两侧都有 Sidedef 的线段另一侧的扇区，与原版引擎的 getNextSector 一致。
+   * 两侧是同一扇区的线段不算；指向不存在的 Sidedef 或扇区的线段跳过。只读输入，结果在一次运行中不变。
+   */
+  neighbors(scope: string): readonly ReadonlySet<number>[] {
+    const hit = this.#neighbors.get(scope);
+    if (hit) return hit;
+    const m = this.#scopes.get(scope);
+    const sectors = m?.lumps["SECTORS"];
+    const out: Set<number>[] = Array.from({ length: sectors === undefined ? 0 : this.#wad.recordCount(sectors, "Sector") }, () => new Set<number>());
+    const lines = m?.lumps["LINEDEFS"];
+    const sides = m?.lumps["SIDEDEFS"];
+    if (lines !== undefined && sides !== undefined) {
+      const sideCount = this.#wad.recordCount(sides, "Sidedef");
+      for (const l of this.#wad.readRecords(lines, "Linedef")) {
+        if ((l.flags & ML_TWOSIDED) === 0) continue;
+        const [front, back] = l.sidenum;
+        if (front === undefined || back === undefined || front >= sideCount || back >= sideCount) continue;
+        const a = this.#wad.readRecord(sides, "Sidedef", front).sector;
+        const b = this.#wad.readRecord(sides, "Sidedef", back).sector;
+        if (a === b || a >= out.length || b >= out.length) continue;
+        out[a]!.add(b);
+        out[b]!.add(a);
+      }
+    }
+    this.#neighbors.set(scope, out);
     return out;
   }
 }
@@ -175,6 +209,69 @@ export const sectorHeightLinked: ProtectionHook = Object.freeze({
   },
 });
 
+/** 原版引擎里以扇区自身亮度为上限、最暗邻居亮度为下限的灯光特效。 */
+const NEIGHBOR_LIGHT_EFFECTS: ReadonlyMap<number, string> = new Map([
+  [1, "random blink"],
+  [8, "glow"],
+  [17, "flicker"],
+]);
+
+/**
+ * 补丁之后扇区的 special 是 1、8 或 17，但没有比它暗的邻居时警告：这些特效在扇区亮度和最暗邻居亮度之间变化，
+ * 没有更暗的邻居时下限等于自身亮度，看不出效果。扇区和邻居都按补丁之后的亮度算。
+ * 只检查补丁触及的扇区：改了它的 special 或 lightlevel，或改了某个邻居的 lightlevel。
+ * 每个扇区只报一次，挂在相关的第一条改动上（本扇区的 special 优先，其次本扇区的 lightlevel，最后邻居的 lightlevel）。
+ */
+export const sectorLightEffectInvisible: ProtectionHook = Object.freeze({
+  name: "sector-light-effect-invisible",
+  severity: "warn" as const,
+  description: "warns when, after the patch, a sector with light special 1, 8 or 17 has no darker neighbour across a two-sided line, so the effect cannot be seen",
+  check: (): string | null => null,
+  checkPatch(changes: readonly ProposedChange[], after: RecordReader, context?: unknown): readonly HookFinding[] {
+    const c = ctx(context);
+    const owners = new Map<string, { scope: string; index: number; change: ProposedChange; rank: number }>();
+    const claim = (scope: string, index: number, change: ProposedChange, rank: number) => {
+      const k = `${scope}\u0000${index}`;
+      const o = owners.get(k);
+      if (!o || rank < o.rank) owners.set(k, { scope, index, change, rank });
+    };
+    for (const ch of changes) {
+      if (ch.record !== "Sector" || ch.newValue === ch.oldValue) continue;
+      if (ch.field === "special") claim(ch.scope, ch.index, ch, 0);
+      else if (ch.field === "lightlevel") {
+        claim(ch.scope, ch.index, ch, 1);
+        for (const n of c?.neighbors(ch.scope)[ch.index] ?? []) claim(ch.scope, n, ch, 2);
+      }
+    }
+    const out: HookFinding[] = [];
+    for (const { scope, index, change } of owners.values()) {
+      const read = (i: number, field: string) => after.readField({ scope, record: "Sector", index: i }, field) as number;
+      const special = read(index, "special");
+      const effect = NEIGHBOR_LIGHT_EFFECTS.get(special);
+      if (effect === undefined) continue;
+      const light = read(index, "lightlevel");
+      const what = `Sector #${index} has special ${special} (${effect}) and lightlevel ${light} after the patch`;
+      if (!c) {
+        out.push({ change, message: `${what}, and its neighbours could not be checked, so the effect may not be visible` });
+        continue;
+      }
+      let darkest: { index: number; light: number } | undefined;
+      for (const n of c.neighbors(scope)[index] ?? []) {
+        const l = read(n, "lightlevel");
+        if (!darkest || l < darkest.light || (l === darkest.light && n < darkest.index)) darkest = { index: n, light: l };
+      }
+      if (!darkest) out.push({ change, message: `${what}, but it has no neighbouring sector across a two-sided line, so the effect will not be visible` });
+      else if (darkest.light >= light) {
+        out.push({
+          change,
+          message: `${what}, but its darkest neighbour #${darkest.index} has lightlevel ${darkest.light}; with no darker neighbour the effect will not be visible`,
+        });
+      }
+    }
+    return out;
+  },
+});
+
 export const WAD_HOOKS: readonly ProtectionHook[] = Object.freeze([
   sectorSpecialNonzero,
   thingPlayerStart,
@@ -184,4 +281,5 @@ export const WAD_HOOKS: readonly ProtectionHook[] = Object.freeze([
   thingCategory,
   thingSizeIncrease,
   sectorHeightLinked,
+  sectorLightEffectInvisible,
 ]);

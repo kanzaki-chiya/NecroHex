@@ -12,10 +12,12 @@ import { lookupRestorer } from "./restorable.ts";
 import { evaluateSelectors } from "./select.ts";
 import type {
   CheckResult,
+  FieldValue,
   PatchIssue,
   PinResolution,
   PlannedChange,
   ProposedChange,
+  ProtectionHook,
   RecordAdapter,
   RecordLocator,
   RecordReader,
@@ -142,6 +144,20 @@ function readerOf(source: RecordSource): RecordReader {
   };
 }
 
+/** 读取视图：changes 中的字段读出新值，其余字段读出输入值。 */
+function afterReader(source: RecordSource, changes: readonly ProposedChange[]): RecordReader {
+  const key = (scope: string, record: string, index: number, field: string) => `${scope}\u0000${record}\u0000${index}\u0000${field}`;
+  const next = new Map<string, FieldValue>();
+  for (const c of changes) next.set(key(c.scope, c.record, c.index, c.field), c.newValue);
+  return {
+    ...readerOf(source),
+    readField: (loc, field) => {
+      const k = key(loc.scope, loc.record, loc.index, field);
+      return next.has(k) ? next.get(k)! : source.readField(loc, field);
+    },
+  };
+}
+
 function locatorOf(c: ProposedChange): RecordLocator {
   return { scope: c.scope, record: c.record, index: c.index };
 }
@@ -256,28 +272,41 @@ function run(input: Uint8Array, rawPatch: unknown, adapter: RecordAdapter, optio
     });
   });
 
-  // 8. 保护钩子（写入前运行，看到的是输入值）
+  // 8. 保护钩子（写入前运行）：check 看到的是输入值；checkPatch 另外看到全部改动写入后的值
   const allowed = new Set(patch.allowProtected ?? []);
   const allowedProtections = new Set<string>();
   const reader = readerOf(source);
+  const report = (hook: ProtectionHook, c: ProposedChange, note: string): void => {
+    const loc = locatorOf(c);
+    if (hook.severity === "warn") {
+      warnings.push({ code: "WARNING", message: `${describe(loc, c.field)}: ${note}`, hook: hook.name, operationId: c.operationId, locator: loc, field: c.field });
+    } else if (allowed.has(hook.name)) {
+      allowedProtections.add(hook.name);
+    } else {
+      issues.push({
+        code: "PROTECTED",
+        message: `${describe(loc, c.field)}: ${note} (hook ${hook.name}; add it to allowProtected to opt in)`,
+        hook: hook.name,
+        operationId: c.operationId,
+        locator: loc,
+        field: c.field,
+      });
+    }
+  };
   for (const c of proposed) {
     for (const hook of adapter.hooks) {
       const note = hook.check(c, reader, source.hookContext);
-      if (note === null) continue;
-      const loc = locatorOf(c);
-      if (hook.severity === "warn") {
-        warnings.push({ code: "WARNING", message: `${describe(loc, c.field)}: ${note}`, hook: hook.name, operationId: c.operationId, locator: loc, field: c.field });
-      } else if (allowed.has(hook.name)) {
-        allowedProtections.add(hook.name);
-      } else {
-        issues.push({
-          code: "PROTECTED",
-          message: `${describe(loc, c.field)}: ${note} (hook ${hook.name}; add it to allowProtected to opt in)`,
-          hook: hook.name,
-          operationId: c.operationId,
-          locator: loc,
-          field: c.field,
-        });
+      if (note !== null) report(hook, c, note);
+    }
+  }
+  const written = proposed.filter((_, i) => !skip.has(i));
+  if (adapter.hooks.some((h) => h.checkPatch)) {
+    const after = afterReader(source, written);
+    for (const hook of adapter.hooks) {
+      if (!hook.checkPatch) continue;
+      for (const f of hook.checkPatch(written, after, source.hookContext)) {
+        if (!written.includes(f.change)) throw new TypeError(`hook ${hook.name} reported a finding on a change it was not given`);
+        report(hook, f.change, f.message);
       }
     }
   }

@@ -167,6 +167,7 @@ describe("钩子 sector-special-nonzero", () => {
       ["thing-category", "block"],
       ["thing-size-increase", "warn"],
       ["sector-height-linked", "warn"],
+      ["sector-light-effect-invisible", "warn"],
     ]);
     const r = applyPatch(bytes, patch(), wadAdapter);
     expect(r.ok).toBe(false);
