@@ -19,6 +19,7 @@ import {
   type FieldValue,
   type PatchIssue,
   type PinResolution,
+  type PlannedChange,
   type RecordAdapter,
   type Selection,
 } from "@necrohex/core";
@@ -334,6 +335,25 @@ function writeAll(files: ReadonlyArray<readonly [string, Uint8Array | string]>):
   }
 }
 
+/**
+ * 在输入上按记录和字段（WadFile.setField）重放引擎实际改动的条目（跳过 unchanged），得到带脏区间的 WadFile。
+ * exportPwad 按脏区间标记每张地图的 modified，并检查改动都落在导出的 Lump 内；重新解析引擎输出得到的 WadFile 没有脏区间。
+ * 重放结果必须与引擎输出逐字节相同，否则抛 INTERNAL，不写任何文件。
+ */
+export function replayChanges(input: Uint8Array, changes: readonly PlannedChange[], expected: Uint8Array): WadFile {
+  const wad = WadFile.parse(input);
+  for (const e of changes) {
+    if (e.unchanged) continue;
+    const m = mapOfScope(wad, e.scope);
+    const lumpName = WRITABLE_LUMP[e.record];
+    const lump = m && lumpName ? m.lumps[lumpName] : undefined;
+    if (lump === undefined) throw new ToolError("INTERNAL", `${e.scope} ${e.record} #${e.index} is not a writable record in the input; nothing was written`);
+    wad.setField(lump, e.record as "Sector", e.index, e.field as never, e.newValue as never);
+  }
+  if (!eqBytes(wad.serialize(), expected)) throw new ToolError("INTERNAL", "replaying the patch's changes on the input does not give the engine's output; nothing was written");
+  return wad;
+}
+
 export function apply(ws: Workspace, args: ApplyArgs) {
   const c = planCore(ws, args);
   const out = outputPath(ws, args.outputPath, "outputPath");
@@ -364,7 +384,7 @@ export function apply(ws: Workspace, args: ApplyArgs) {
   }
   const changedScopes = [...new Set(r.changes.filter((x) => !x.unchanged).map((x) => x.scope))];
   if (changedScopes.length === 0) throw new ToolError("NOTHING_TO_WRITE", "the patch changes no bytes on this input (every new value equals the old one); nothing was written");
-  const modified = WadFile.parse(r.output!);
+  const modified = replayChanges(c.input.bytes, r.changes, r.output!);
   let pwad;
   try {
     pwad = exportPwad(modified, { maps: changedScopes.map((s) => s.split("@")[0]!) });
