@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { planPatch, RELOCATION_THRESHOLDS } from "@necrohex/core";
 import { describe, expect, it } from "vitest";
-import { FINGERPRINT_PARAMS, sectorFingerprintScore, wadAdapter, type FingerprintParams, type SectorFingerprint } from "../src/index.ts";
+import { createWadAdapter, FINGERPRINT_PARAMS, sectorFingerprintScore, wadAdapter, type FingerprintParams, type SectorFingerprint } from "../src/index.ts";
 
 /** 修复前的公式：没有 bbox 和面积，几何中心 0.4，半径 32。 */
 const OLD: FingerprintParams = {
@@ -147,5 +147,30 @@ describe.skipIf(!haveCache)("重定位回归：真实地图（需要 fixtures/ca
 
   it("对照：MAP01 #19（0.12.1）仍重定位到 #42（0.13.0），两边边界线段坐标完全相同", () => {
     expect(resolvePin("0.12.1", "0.13.0", "MAP01", 19).pin).toMatchObject({ result: "RELOCATED", index: 42, score: 1 });
+  });
+
+  // patches/relocation-demo.nhpatch.json 的 pin。#196 没有对照一（边界线段有改动），面积覆盖 0.94
+  it("演示 pin：MAP01 #74（0.12.1）在 0.13.0 上是 RELOCATED #196，不是同下标的 #74（另一条窄条）", () => {
+    const { pin } = resolvePin("0.12.1", "0.13.0", "MAP01", 74);
+    expect(pin).toMatchObject({ result: "RELOCATED", expectedIndex: 74, index: 196, score: 0.8728 });
+    const same = wadAdapter.open(load("0.13.0")).fingerprints!.compute({ scope: "MAP01", record: "Sector", index: 74 }) as SectorFingerprint;
+    expect(same.bbox).toEqual([1852, -760, 1872, -640]);
+    expect(pin.candidates.some((c) => c.index === 74 && c.score >= RELOCATION_THRESHOLDS.high)).toBe(false);
+  });
+
+  it("演示补丁文件在 0.13.0 上应用：回执为 #74 → #196，floorpic SLIME14 → BLOOD1", () => {
+    const patch = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../patches/relocation-demo.nhpatch.json"), "utf8")) as unknown;
+    const r = planPatch(load("0.13.0"), patch, createWadAdapter({ baseIwad: load("0.13.0") }));
+    expect(r.issues).toEqual([]);
+    expect(r.changes).toEqual([
+      expect.objectContaining({
+        scope: "MAP01",
+        index: 196,
+        field: "floorpic",
+        oldValue: "SLIME14",
+        newValue: "BLOOD1",
+        selection: { kind: "RELOCATED", expectedIndex: 74, fingerprintChecked: true, score: 0.8728 },
+      }),
+    ]);
   });
 });

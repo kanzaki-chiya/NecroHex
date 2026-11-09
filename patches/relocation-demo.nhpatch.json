@@ -4,21 +4,21 @@
   "target": { "format": "wad", "maps": ["MAP01"] },
   "operations": [
     {
-      "id": "blood-channel-map01",
+      "id": "blood-pool-map01",
       "select": {
         "record": "Sector",
         "pin": {
           "map": "MAP01",
-          "expectedIndex": 19,
+          "expectedIndex": 74,
           "fingerprint": {
             "tag": 0,
-            "floorpic": "AQF075",
-            "ceilingpic": "AQF024",
-            "heights": [-64, 24],
-            "centroid": [560, -160],
-            "bbox": [544, -320, 576, 0],
-            "area": 4096,
-            "lineCount": 8
+            "floorpic": "AQF026",
+            "ceilingpic": "AQF075",
+            "heights": [16, 160],
+            "centroid": [1798, -723],
+            "bbox": [1728, -792, 1872, -640],
+            "area": 14192,
+            "lineCount": 16
           }
         }
       },

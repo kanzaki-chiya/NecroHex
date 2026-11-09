@@ -24,8 +24,10 @@ pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直
 
 | Hook | 触发条件 | 动作 | 拦下过什么 |
 | :--- | :--- | :--- | :--- |
-| Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。2026-11-09 在新会话里确认会触发，见下面的验证。2026-11-09 在实现写入护栏的会话里用 Kiro 的 createHook 创建，Kiro 提示下次会话开始才生效，所以这次会话里没有触发过。手动运行同一条命令，生成的 `records.ts` 与已提交的版本相同 |
-| Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。2026-11-09 在新会话里确认会触发，但它的输出没有回到 Agent，见下面的验证。与上一条同时创建，同样在这次会话里没有触发过。手动运行通过。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
+| Regenerate WAD records（`.kiro/hooks/regenerate-records.json`） | PostFileSave，路径匹配 `wad\.records\.yaml$` | `pnpm --filter @necrohex/adapter-wad generate` | 还没有拦下过问题。会触发（生成文件被重写，见下面的验证）；输出没有回到 Agent，IDE 里是否显示结果未确认 |
+| Typecheck on save（`.kiro/hooks/typecheck-on-save.json`） | PostFileSave，路径匹配 `packages[\\/][^\\/]+[\\/]src[\\/].*\.ts$` | `pnpm -r typecheck` | 还没有拦下过问题。会触发，但输出没有回到 Agent，IDE 里是否显示报错未确认（见下面的验证）。matcher 也匹配 `src/generated/records.ts`，不匹配 `test/` 和 `scripts/` |
+
+两个 Hook 都是在实现写入护栏的会话里用 Kiro 的 createHook 创建的，Kiro 提示下次会话开始才生效。
 
 ### 2026-11-09 新会话里的验证
 
