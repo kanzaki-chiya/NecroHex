@@ -31,7 +31,7 @@ Passing checks only tell you what was checked. They do not mean a map can be fin
 
 ## Workbench
 
-`packages/web` is the web workbench. It opens Freedoom's `freedoom2.wad` (MAP01 by default) or a WAD you choose, runs patch planning in a Web Worker, and exports a PWAD with a receipt. Your files stay in the browser.
+`packages/web` is the web workbench, online at <https://necrohex.koxia.cn>. It opens Freedoom's `freedoom2.wad` (MAP01 by default) or a WAD you choose, runs patch planning in a Web Worker, and exports a PWAD with a receipt. Your files stay in the browser.
 
 ```text
 pnpm --filter @necrohex/web dev       # http://localhost:5173/
@@ -40,6 +40,10 @@ pnpm --filter @necrohex/web preview   # http://localhost:4173/
 ```
 
 The first `dev` or `build` downloads `freedoom-0.13.0.zip` from the Freedoom releases and checks its SHA-256 before using it. Set `NECROHEX_FREEDOOM_ZIP` to a local copy to skip the download. Freedoom's `COPYING.txt` is published with the site.
+
+### Self-hosting
+
+Run `pnpm install`, then `pnpm --filter @necrohex/web build`, and serve the contents of `packages/web/dist` as a static site at the root of a domain. Besides the WAD, the build writes `dist/freedoom/freedoom2.wad.gz` (gzip level 9), so a server with `gzip_static` can send the 28 MB sample compressed without compressing it on each request. [`deploy/nginx.conf.example`](deploy/nginx.conf.example) is a configuration for nginx or OpenResty with the cache headers for each path.
 
 ## Documentation
 

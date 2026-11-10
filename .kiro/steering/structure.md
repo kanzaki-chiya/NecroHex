@@ -9,6 +9,7 @@ packages/
   web/           workbench: Vite + Vue 3 web app
 patches/         example patches
 docs/            design and planning documents, workbench mockup
+deploy/          example server configuration for the workbench
 out/             local output, git-ignored
 ```
 

@@ -1,0 +1,50 @@
+# NecroHex workbench as a static site on nginx or OpenResty.
+# Build first: pnpm --filter @necrohex/web build. Upload packages/web/dist.
+# Replace example.com, the certificate paths and /srv/necrohex/dist with your own values.
+# Put the server blocks inside the http block.
+
+# HTTP only redirects to HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name example.com;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    # The contents of packages/web/dist.
+    root /srv/necrohex/dist;
+    index index.html;
+
+    # An add_header inside a location replaces every add_header of the server block,
+    # so each location below repeats Strict-Transport-Security.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+
+    # Built-in sample (28 MB). The build writes freedoom2.wad.gz next to it;
+    # gzip_static sends that file to clients that accept gzip, and the plain WAD to the rest.
+    location = /freedoom/freedoom2.wad {
+        gzip_static on;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+        add_header Cache-Control "public, max-age=604800";
+    }
+
+    # Vite puts a content hash in every file name here.
+    location /assets/ {
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # "/" is served as /index.html through the index directive and ends up here too.
+    location = /index.html {
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+        add_header Cache-Control "no-cache";
+    }
+}
