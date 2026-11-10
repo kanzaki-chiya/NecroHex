@@ -43,6 +43,10 @@ jobs:
           done
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
+      # cache 目录被 git 忽略，新 checkout 里没有；后面的 working-directory 需要它存在
+      - name: Create Freedoom cache directory
+        run: mkdir -p "$FREEDOOM_CACHE/downloads"
+
       - name: Restore Freedoom downloads
         id: freedoom-cache
         uses: actions/cache/restore@v6
