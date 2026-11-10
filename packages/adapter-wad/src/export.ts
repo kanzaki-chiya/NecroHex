@@ -14,7 +14,9 @@ export type WadExportErrorCode =
   /** 导出地图的某个 Lump 数据不在文件内，无法原样复制。 */
   | "UNREADABLE_LUMP"
   /** 导出结果重新解析后，地图作用域与源文件不一致。 */
-  | "VERIFY_FAILED";
+  | "VERIFY_FAILED"
+  /** 在输入上重放补丁改动时失败，或结果与引擎输出不同（patch-export.ts）。 */
+  | "REPLAY_MISMATCH";
 
 /** 导出被拒绝。拒绝时不产生任何输出。 */
 export class WadExportError extends Error {

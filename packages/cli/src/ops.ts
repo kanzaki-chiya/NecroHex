@@ -16,14 +16,14 @@ import {
   queryRecords,
   revertPatch,
   type CheckResult,
+  type ApplyResult,
   type FieldValue,
   type PatchIssue,
   type PinResolution,
-  type PlannedChange,
   type RecordAdapter,
   type Selection,
 } from "@necrohex/core";
-import { createWadAdapter, exportPwad, WadExportError, WadFile, WadParseError, wadAdapter, type MapScope } from "@necrohex/adapter-wad";
+import { createWadAdapter, exportPatchPwad, scopeMap, WadExportError, WadFile, WadParseError, wadAdapter, type MapScope } from "@necrohex/adapter-wad";
 import { runEngineSmoke } from "./engine-smoke.ts";
 import { ToolError } from "./errors.ts";
 import { display, inputPath, outputPath, type Workspace } from "./workspace.ts";
@@ -336,22 +336,19 @@ function writeAll(files: ReadonlyArray<readonly [string, Uint8Array | string]>):
 }
 
 /**
- * 在输入上按记录和字段（WadFile.setField）重放引擎实际改动的条目（跳过 unchanged），得到带脏区间的 WadFile。
- * exportPwad 按脏区间标记每张地图的 modified，并检查改动都落在导出的 Lump 内；重新解析引擎输出得到的 WadFile 没有脏区间。
- * 重放结果必须与引擎输出逐字节相同，否则抛 INTERNAL，不写任何文件。
+ * PWAD 导出与工作台共用 adapter-wad 的 exportPatchPwad：在输入上重放引擎实际改动的条目、核对与引擎输出相同，再只导出有改动的地图。
+ * 错误码映射：NOTHING_TO_EXPORT → NOTHING_TO_WRITE，REPLAY_MISMATCH → INTERNAL，其他导出拒绝 → EXPORT_REJECTED。都不写任何文件。
  */
-export function replayChanges(input: Uint8Array, changes: readonly PlannedChange[], expected: Uint8Array): WadFile {
-  const wad = WadFile.parse(input);
-  for (const e of changes) {
-    if (e.unchanged) continue;
-    const m = mapOfScope(wad, e.scope);
-    const lumpName = WRITABLE_LUMP[e.record];
-    const lump = m && lumpName ? m.lumps[lumpName] : undefined;
-    if (lump === undefined) throw new ToolError("INTERNAL", `${e.scope} ${e.record} #${e.index} is not a writable record in the input; nothing was written`);
-    wad.setField(lump, e.record as "Sector", e.index, e.field as never, e.newValue as never);
+function exportApplied(input: Uint8Array, r: ApplyResult) {
+  try {
+    return exportPatchPwad(input, r);
+  } catch (e) {
+    if (e instanceof WadExportError) {
+      const code = e.code === "NOTHING_TO_EXPORT" ? "NOTHING_TO_WRITE" : e.code === "REPLAY_MISMATCH" ? "INTERNAL" : "EXPORT_REJECTED";
+      throw new ToolError(code, code === "EXPORT_REJECTED" ? `PWAD export refused: ${e.message}; nothing was written` : `${e.message}; nothing was written`);
+    }
+    throw e;
   }
-  if (!eqBytes(wad.serialize(), expected)) throw new ToolError("INTERNAL", "replaying the patch's changes on the input does not give the engine's output; nothing was written");
-  return wad;
 }
 
 export function apply(ws: Workspace, args: ApplyArgs) {
@@ -382,16 +379,7 @@ export function apply(ws: Workspace, args: ApplyArgs) {
       note: "The patch was rejected; nothing was written.",
     };
   }
-  const changedScopes = [...new Set(r.changes.filter((x) => !x.unchanged).map((x) => x.scope))];
-  if (changedScopes.length === 0) throw new ToolError("NOTHING_TO_WRITE", "the patch changes no bytes on this input (every new value equals the old one); nothing was written");
-  const modified = replayChanges(c.input.bytes, r.changes, r.output!);
-  let pwad;
-  try {
-    pwad = exportPwad(modified, { maps: changedScopes.map((s) => s.split("@")[0]!) });
-  } catch (e) {
-    if (e instanceof WadExportError) throw new ToolError("EXPORT_REJECTED", `PWAD export refused: ${e.message}; nothing was written`);
-    throw e;
-  }
+  const pwad = exportApplied(c.input.bytes, r);
   const receiptText = JSON.stringify(r.receipt, null, 2) + "\n";
   writeAll([[out, pwad.bytes], [receiptPath, receiptText], ...(full ? ([[full, r.output!]] as const) : [])]);
   return {
@@ -476,12 +464,6 @@ interface ReceiptEntry {
   span: { start: number; end: number };
 }
 
-function mapOfScope(wad: WadFile, scope: string): MapScope | undefined {
-  if (!scope.includes("@")) return wad.findMap(scope);
-  const [name, marker] = scope.split("@");
-  return wad.maps.find((m) => m.name.toUpperCase() === name!.toUpperCase() && m.markerIndex === Number(marker));
-}
-
 const WRITABLE_LUMP: Readonly<Record<string, string>> = { Sector: "SECTORS", Thing: "THINGS" };
 
 /** DSDA-Doom 的默认安装位置，相对 %LOCALAPPDATA%。 */
@@ -526,7 +508,7 @@ export async function verify(ws: Workspace, args: VerifyArgs) {
     try {
       const wad = WadFile.parse(input.bytes);
       for (const e of entries) {
-        const m = mapOfScope(wad, e.scope);
+        const m = scopeMap(wad, e.scope);
         const lumpName = WRITABLE_LUMP[e.record];
         if (!m || !lumpName || m.lumps[lumpName] === undefined) throw new Error(`receipt entry ${e.scope} ${e.record} #${e.index} does not name a writable record in the input`);
         const lump = m.lumps[lumpName]!;

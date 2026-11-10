@@ -11,16 +11,16 @@
     - 删除 adapter-wad 的 `./node` 导出；`patch-entry.test.ts` 改为只检查主入口，`exports` 恰为 `.`；cli 的 `imports.test.ts` 去掉 `@necrohex/adapter-wad/node`，并扫描 `packages/web/src`
     - 更新 `fixtures/README.md` 和 `docs/decisions.md` 中的路径
     - _Requirements: 8.2, 8.3, 8.4_
-- [ ] 2. 共享导出逻辑和几何
-  - [ ] 2.1 `src/patch-export.ts`：`scopeMap`、`replayChanges`、`exportPatchPwad`，`WadExportError` 增加 `REPLAY_MISMATCH`；主入口导出它们和 `flatNames`
+- [x] 2. 共享导出逻辑和几何
+  - [x] 2.1 `src/patch-export.ts`：`scopeMap`、`replayChanges`、`exportPatchPwad`，`WadExportError` 增加 `REPLAY_MISMATCH`；主入口导出它们和 `flatNames`
     - 按 §Patch_Export
     - _Requirements: 7.1, 7.2_
-  - [ ] 2.2 `cli/src/ops.ts` 的 `apply` 和 `verify` 改用它们，错误码映射不变；`apply-export.test.ts` 改从 adapter-wad 导入 `replayChanges`
+  - [x] 2.2 `cli/src/ops.ts` 的 `apply` 和 `verify` 改用它们，错误码映射不变；`apply-export.test.ts` 改从 adapter-wad 导入 `replayChanges`
     - _Requirements: 7.1, 8.3_
-  - [ ] 2.3 `src/outline.ts`：`sectorOutlines`
+  - [x] 2.3 `src/outline.ts`：`sectorOutlines`
     - 按 §扇区轮廓
     - _Requirements: 4.5_
-  - [ ] 2.4 `test/patch-export.test.ts`、`test/outline.test.ts`
+  - [x] 2.4 `test/patch-export.test.ts`、`test/outline.test.ts`
     - _Requirements: 7.1, 4.5_
 - [ ] 3. `packages/web` 骨架
   - [ ] 3.1 `package.json`、`tsconfig.json`（应用）、`tsconfig.node.json`（脚本、测试、配置）、`vite.config.ts`、`index.html`；`.gitignore` 忽略 `public/freedoom/` 和 `.cache/`

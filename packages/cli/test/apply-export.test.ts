@@ -6,9 +6,9 @@ import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { applyPatch } from "@necrohex/core";
-import { exportPwad, wadAdapter, WadFile } from "@necrohex/adapter-wad";
+import { exportPwad, replayChanges, wadAdapter, WadFile } from "@necrohex/adapter-wad";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { apply, replayChanges } from "../src/ops.ts";
+import { apply } from "../src/ops.ts";
 import { openWorkspace, type Workspace } from "../src/workspace.ts";
 
 const REPO = resolve(import.meta.dirname, "../../..");

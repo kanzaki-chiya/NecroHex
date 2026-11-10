@@ -264,3 +264,5 @@
 | 决定 | 原因 |
 | :--- | :--- |
 | 启动引擎的代码（`engine-smoke.ts`）从 `@necrohex/adapter-wad/node` 移到 `packages/cli/src`，删除 `./node` 子路径；测试和脚本一起移走，`buildIdleDemo` 留在 adapter-wad。取代 2026-11-09 “启动子进程的代码放在 `@necrohex/adapter-wad/node` 子路径” | 要求 `core` 和 `adapter-wad` 整个包都能在浏览器里运行，不再靠“主入口不导入”这条约定。`packages/cli/test/imports.test.ts` 检查这两个包的 `src` 没有 Node 模块 |
+| `replayChanges` 和导出流程从 `cli/src/ops.ts` 移到 `adapter-wad/src/patch-export.ts`（`exportPatchPwad`、`scopeMap`），CLI 的 `apply` 和工作台都调用它；`WadExportError` 增加 `REPLAY_MISMATCH`，CLI 的错误码映射不变 | 要求工作台导出 PWAD 用和 CLI 相同的逻辑。这段代码只用 `WadFile` 和 `exportPwad`，没有文件系统和 planId，放在 adapter-wad 不会带进工具层的概念 |
+| 扇区轮廓 `sectorOutlines` 放在 adapter-wad，只读 | structure 规则把几何放在 adapter-wad；工作台只把环转成 SVG 路径 |
