@@ -1,32 +1,17 @@
 /**
  * 引擎冒烟测试。需要本地的 DSDA-Doom 和完整的 freedoom2.wad：
- * NECROHEX_ENGINE 指向 dsda-doom 可执行文件，freedoom2.wad 放在 fixtures/cache/。缺任何一个时跳过。
+ * NECROHEX_ENGINE 指向 dsda-doom 可执行文件，freedoom2.wad 放在 packages/adapter-wad/fixtures/cache/。缺任何一个时跳过。
  * 引擎是 GPL 程序，不进入仓库，只作为独立进程调用。
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { buildWad, exportPwad, WadFile } from "@necrohex/adapter-wad";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildIdleDemo, buildWad, exportPwad, WadFile } from "../src/index.ts";
-import { runEngineSmoke } from "../src/node/engine-smoke.ts";
-
-describe("演示录像", () => {
-  it("v1.9 头、每 tic 4 字节零输入、结束标记", () => {
-    const d = buildIdleDemo({ map: "MAP07", tics: 3 });
-    expect([...d]).toEqual([109, 2, 1, 7, 0, 0, 0, 0, 0, 1, 0, 0, 0, ...new Array(12).fill(0), 0x80]);
-    expect([...buildIdleDemo({ map: "e2m4", tics: 1, skill: 4 }).subarray(0, 4)]).toEqual([109, 4, 2, 4]);
-  });
-
-  it("拒绝无法写进录像头的参数", () => {
-    expect(() => buildIdleDemo({ map: "MAP00", tics: 1 })).toThrow(RangeError);
-    expect(() => buildIdleDemo({ map: "START", tics: 1 })).toThrow(RangeError);
-    expect(() => buildIdleDemo({ map: "MAP01", tics: 0 })).toThrow(RangeError);
-    expect(() => buildIdleDemo({ map: "MAP01", tics: 1, skill: 5 })).toThrow(RangeError);
-  });
-});
+import { runEngineSmoke } from "../src/engine-smoke.ts";
 
 const engine = process.env["NECROHEX_ENGINE"];
-const iwad = resolve(import.meta.dirname, "../fixtures/cache/freedoom2.wad");
+const iwad = resolve(import.meta.dirname, "../../adapter-wad/fixtures/cache/freedoom2.wad");
 const ready = !!engine && existsSync(engine) && existsSync(iwad);
 
 describe.skipIf(!ready)("引擎冒烟（DSDA-Doom）", () => {

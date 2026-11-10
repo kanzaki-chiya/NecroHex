@@ -1,6 +1,7 @@
 /**
  * cli 和 mcp-server 只能用 @necrohex/core、@necrohex/adapter-wad 的公开导出：
  * 不能导入 @necrohex/core/internal（ByteOverlay、写回通道），不能深入其他包的 src，不能用相对路径跨出自己的包。
+ * 另外，core 和 adapter-wad 的 src 要能在浏览器里运行，不能导入 Node 模块。
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -9,7 +10,9 @@ import { describe, expect, it } from "vitest";
 const PACKAGES = resolve(import.meta.dirname, "../..");
 const CHECKED = ["cli", "mcp-server"];
 /** 允许的 @necrohex/* 说明符，都是对应 package.json exports 里列出的入口。 */
-const ALLOWED = new Set(["@necrohex/core", "@necrohex/adapter-wad", "@necrohex/adapter-wad/node", "@necrohex/cli/ops", "@necrohex/cli/errors", "@necrohex/cli/workspace", "@necrohex/cli/cli"]);
+const ALLOWED = new Set(["@necrohex/core", "@necrohex/adapter-wad", "@necrohex/cli/ops", "@necrohex/cli/errors", "@necrohex/cli/workspace", "@necrohex/cli/cli"]);
+/** 可在浏览器里运行的包。 */
+const BROWSER = ["core/src", "adapter-wad/src"];
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -47,6 +50,18 @@ describe("cli 和 mcp-server 的导入", () => {
         } else if (/(^|[\\/])packages[\\/]|adapter-wad[\\/]src|core[\\/]src/.test(s)) bad.push(where);
       }
     }
+    expect(bad).toEqual([]);
+  });
+
+  it("core 和 adapter-wad 的 src 不导入 Node 模块", () => {
+    const builtins = /^(node:|(fs|path|os|child_process|crypto|url|stream|buffer|process|worker_threads|zlib)(\/|$))/;
+    const bad: string[] = [];
+    for (const dir of BROWSER) {
+      for (const file of files(join(PACKAGES, dir))) {
+        for (const s of specifiers(readFileSync(file, "utf8"))) if (builtins.test(s)) bad.push(`${relative(PACKAGES, file)}: ${s}`);
+      }
+    }
+    expect(files(join(PACKAGES, "adapter-wad/src")).length).toBeGreaterThan(5);
     expect(bad).toEqual([]);
   });
 

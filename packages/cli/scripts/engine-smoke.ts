@@ -3,7 +3,7 @@
  * 用法：node scripts/engine-smoke.ts <dsda-doom 可执行文件> <iwad> <pwad> <map> [tics]
  * 通过时退出码 0，否则 1。只报告通过了哪些检查，不声称地图可以通关。
  */
-import { runEngineSmoke } from "../src/node/engine-smoke.ts";
+import { runEngineSmoke } from "../src/engine-smoke.ts";
 
 const [engine, iwad, pwad, map, tics] = process.argv.slice(2);
 if (!engine || !iwad || !pwad || !map) {

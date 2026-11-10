@@ -6,8 +6,8 @@
 
 ## Tasks
 
-- [ ] 1. adapter-wad 不含 Node 模块
-  - [ ] 1.1 `src/node/engine-smoke.ts` 移到 `packages/cli/src/engine-smoke.ts`，`test/engine-smoke.test.ts` 移到 `packages/cli/test/`，`scripts/engine-smoke.ts` 移到 `packages/cli/scripts/`
+- [x] 1. adapter-wad 不含 Node 模块
+  - [x] 1.1 `src/node/engine-smoke.ts` 移到 `packages/cli/src/engine-smoke.ts`，`test/engine-smoke.test.ts` 移到 `packages/cli/test/`，`scripts/engine-smoke.ts` 移到 `packages/cli/scripts/`
     - 删除 adapter-wad 的 `./node` 导出；`patch-entry.test.ts` 改为只检查主入口，`exports` 恰为 `.`；cli 的 `imports.test.ts` 去掉 `@necrohex/adapter-wad/node`，并扫描 `packages/web/src`
     - 更新 `fixtures/README.md` 和 `docs/decisions.md` 中的路径
     - _Requirements: 8.2, 8.3, 8.4_

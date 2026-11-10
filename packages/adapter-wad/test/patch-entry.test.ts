@@ -4,7 +4,6 @@ import * as core from "@necrohex/core";
 import * as coreInternal from "@necrohex/core/internal";
 import { describe, expect, it } from "vitest";
 import * as adapter from "../src/index.ts";
-import * as nodeEntry from "../src/node/engine-smoke.ts";
 import { buildWad, MAP_DATA_LUMPS, wadAdapter, WadFile } from "../src/index.ts";
 
 const FORBIDDEN = ["restoreField", "installRestore", "restoreWadField", "openRestorable", "lookupRestorer", "encodeRestoreValue"];
@@ -33,9 +32,8 @@ function expectClean(entry: Record<string, unknown>, label: string): void {
 }
 
 describe("adapter-wad 公开入口不暴露写回通道", () => {
-  it("主入口和 ./node 的导出值及原型链（含符号键）", () => {
+  it("主入口的导出值及原型链（含符号键）", () => {
     expectClean(adapter as unknown as Record<string, unknown>, "adapter-wad");
-    expectClean(nodeEntry as unknown as Record<string, unknown>, "adapter-wad/node");
   });
 
   it("core 的两个入口", () => {
@@ -61,9 +59,9 @@ describe("adapter-wad 公开入口不暴露写回通道", () => {
     expect(wadAdapter.format).toBe("wad");
   });
 
-  it("adapter-wad 的 exports 恰为 . 和 ./node", () => {
+  it("adapter-wad 的 exports 恰为 .（启动引擎的 Node 代码在 cli）", () => {
     const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8")) as { exports: Record<string, string> };
-    expect(Object.keys(pkg.exports).sort()).toEqual([".", "./node"]);
+    expect(Object.keys(pkg.exports).sort()).toEqual(["."]);
   });
 
   it("主入口只新增了 wadAdapter 和 createWadAdapter 这两个补丁相关的值", () => {

@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { buildIdleDemo } from "../demo.ts";
+import { buildIdleDemo } from "@necrohex/adapter-wad";
 
 export interface EngineSmokeOptions {
   /** DSDA-Doom 可执行文件。 */

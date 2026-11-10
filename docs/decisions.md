@@ -258,3 +258,9 @@
 | 测试里“没有引擎”的情况把 `LOCALAPPDATA` 指向一个空的临时目录 | 开发机的默认位置装了引擎，不这样做“没有引擎时不报告通过”的测试就测不到。默认位置有引擎时另有测试核对它被用上、路径写在结果里，以及 `NECROHEX_ENGINE` 指向不存在的文件时不退回默认位置 |
 | `mcp.example.json` 去掉 `env`。MCP Server 的工作区根目录：`NECROHEX_WORKSPACE` 非空时用它；否则从入口文件所在目录向上找 `pnpm-workspace.yaml`，用它所在的目录，不再用当前目录。CLI 不变，仍默认当前目录 | 查了 [Kiro 的 MCP 配置文档](https://kiro.dev/docs/mcp/configuration.md)：`mcp.json` 只有 `${VAR}` 形式的环境变量展开（要先在 “Mcp Approved Env Vars” 里批准），没有工作区路径变量。用环境变量就得要求用户在系统里设置 `NECROHEX_WORKSPACE` 并批准，而入口文件本来就在仓库里，向上找到的就是仓库根目录 |
 | `args` 里的入口文件仍是相对路径 `packages/mcp-server/src/main.ts` | Kiro 文档写明服务器以第一个工作区根文件夹为当前目录启动。这一点不成立时服务器启动失败（找不到模块），不会用错工作区 |
+
+## 2026-11-10：工作台
+
+| 决定 | 原因 |
+| :--- | :--- |
+| 启动引擎的代码（`engine-smoke.ts`）从 `@necrohex/adapter-wad/node` 移到 `packages/cli/src`，删除 `./node` 子路径；测试和脚本一起移走，`buildIdleDemo` 留在 adapter-wad。取代 2026-11-09 “启动子进程的代码放在 `@necrohex/adapter-wad/node` 子路径” | 要求 `core` 和 `adapter-wad` 整个包都能在浏览器里运行，不再靠“主入口不导入”这条约定。`packages/cli/test/imports.test.ts` 检查这两个包的 `src` 没有 Node 模块 |

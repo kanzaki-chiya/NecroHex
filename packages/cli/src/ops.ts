@@ -24,7 +24,7 @@ import {
   type Selection,
 } from "@necrohex/core";
 import { createWadAdapter, exportPwad, WadExportError, WadFile, WadParseError, wadAdapter, type MapScope } from "@necrohex/adapter-wad";
-import { runEngineSmoke } from "@necrohex/adapter-wad/node";
+import { runEngineSmoke } from "./engine-smoke.ts";
 import { ToolError } from "./errors.ts";
 import { display, inputPath, outputPath, type Workspace } from "./workspace.ts";
 
