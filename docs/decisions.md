@@ -266,3 +266,8 @@
 | 启动引擎的代码（`engine-smoke.ts`）从 `@necrohex/adapter-wad/node` 移到 `packages/cli/src`，删除 `./node` 子路径；测试和脚本一起移走，`buildIdleDemo` 留在 adapter-wad。取代 2026-11-09 “启动子进程的代码放在 `@necrohex/adapter-wad/node` 子路径” | 要求 `core` 和 `adapter-wad` 整个包都能在浏览器里运行，不再靠“主入口不导入”这条约定。`packages/cli/test/imports.test.ts` 检查这两个包的 `src` 没有 Node 模块 |
 | `replayChanges` 和导出流程从 `cli/src/ops.ts` 移到 `adapter-wad/src/patch-export.ts`（`exportPatchPwad`、`scopeMap`），CLI 的 `apply` 和工作台都调用它；`WadExportError` 增加 `REPLAY_MISMATCH`，CLI 的错误码映射不变 | 要求工作台导出 PWAD 用和 CLI 相同的逻辑。这段代码只用 `WadFile` 和 `exportPwad`，没有文件系统和 planId，放在 adapter-wad 不会带进工具层的概念 |
 | 扇区轮廓 `sectorOutlines` 放在 adapter-wad，只读 | structure 规则把几何放在 adapter-wad；工作台只把环转成 SVG 路径 |
+| 工作台的包叫 `packages/web`，地图用 SVG 绘制。取代第 11 节目录图里的 `workbench/` 和第 13 节的 “Canvas 2D” | 按用户要求；已确认的示例 `docs/workbench-mockup/` 用 SVG（缩放、点击命中和虚线轮廓都靠 SVG 自带的能力）。Freedoom 最大的地图也只有几千个元素 |
+| 内置样本是完整的 Freedoom 0.13.0 `freedoom2.wad`，构建时从 GitHub 发行页下载 zip，按官方 CHECKSUM 校验 zip，再校验解出的 WAD；页面载入后在 Worker 里再算一次哈希。`COPYING.txt` 随站点发布 | WAD 不进 git。两次校验分别防下载出错和部署后文件被换 |
+| 用户打开 PWAD 时，以内置样本为基础 IWAD 创建 adapter（与 CLI 的 `--iwad` 相同）；打开 IWAD 时不用基础 IWAD | PWAD 通常不带 Flat，不这样做 `BLOOD1` 一类的新贴图名都会被 `flat-exists` 拒绝 |
+| 结论里的回执哈希只在补丁未编辑时计算（Worker 里再跑一次 `applyPatch`），编辑后不算 | 完整 WAD 的应用和两次哈希要 0.3 到 0.8 秒；编辑时只跑约 70 ms 的 `planPatch`。示例也只在未编辑时显示回执 |
+| Worker 合并排队中的规划请求，只处理最新的一个；回执请求在有更新的规划时作废；数值控件防抖 150 ms | 拖滑块时不积压过期的规划 |

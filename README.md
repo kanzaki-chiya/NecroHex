@@ -29,6 +29,18 @@ Add `--json` for machine-readable output. Exit codes: 0 success, 1 patch rejecte
 
 Passing checks only tell you what was checked. They do not mean a map can be finished.
 
+## Workbench
+
+`packages/web` is the web workbench. It opens Freedoom's `freedoom2.wad` (MAP01 by default) or a WAD you choose, runs patch planning in a Web Worker, and exports a PWAD with a receipt. Your files stay in the browser.
+
+```text
+pnpm --filter @necrohex/web dev       # http://localhost:5173/
+pnpm --filter @necrohex/web build     # static site in packages/web/dist
+pnpm --filter @necrohex/web preview   # http://localhost:4173/
+```
+
+The first `dev` or `build` downloads `freedoom-0.13.0.zip` from the Freedoom releases and checks its SHA-256 before using it. Set `NECROHEX_FREEDOOM_ZIP` to a local copy to skip the download. Freedoom's `COPYING.txt` is published with the site.
+
 ## Documentation
 
 See the [documentation index](docs/README.md).

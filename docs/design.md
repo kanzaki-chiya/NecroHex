@@ -223,11 +223,11 @@ NecroHex/
 │   ├── adapter-wad/       # 记录布局、WAD 解析和导出、几何计算、Freedoom 样本
 │   ├── cli/               # inspect、plan、apply、revert、export
 │   ├── mcp-server/        # MCP 工具
-│   └── workbench/         # Vue 3 + Vite + Canvas 2D 工作台
+│   └── web/               # Vue 3 + Vite 工作台，地图用 SVG
 └── patches/               # 示例补丁
 ```
 
-依赖方向：`workbench`、`cli`、`mcp-server` → `adapter-wad` → `core`。
+依赖方向：`web`、`cli`、`mcp-server` → `adapter-wad` → `core`。
 
 ## 12. MCP 工具
 
@@ -245,7 +245,7 @@ NecroHex/
 
 主界面三块：
 
-- **地图**：Canvas 2D 绘制线段和 Thing，支持修改前后切换。
+- **地图**：SVG 绘制扇区、线段和 Thing，支持修改前后切换（视觉规格见 `docs/workbench-mockup/`）。
 - **补丁**：选择预设或导入补丁，查看匹配结果、警告和拒绝原因。
 - **字节**：选中地图对象后，定位并高亮对应的 Hex 区间。联动先做地图到 Hex 的单向。
 

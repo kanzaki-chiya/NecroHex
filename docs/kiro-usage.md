@@ -18,6 +18,8 @@
 | wad-roundtrip（实现后补写） | 代码和测试先完成，之后补写 requirements、design、tasks，与先写 Spec 再实现的顺序相反。补写完成后，对七项差异逐项做决定，再按 tasks.md 的必需任务实现。点 tasks.md 中的任务按钮执行时报错 “Could not locate tasks.md”，之后改用 Default 模式，让 Agent 按 tasks.md 执行 | `.kiro/specs/wad-roundtrip/` 下的三份文档；按任务实现的修复和测试，回归用例集中在 `packages/adapter-wad/test/regression.test.ts` | 补写过程中靠阅读代码和内存中的临时脚本复现，发现了 `parse` 不复制输入且 `baseBuffer` 可被改写（D-5）、`setField` 可写入文件头（目录项 `filepos` 为 0 时，重新解析抛 `BAD_IDENT`，X-1）、`fieldSpan("constructor")` 返回 `NaN` 区间（F-3）、没有地图标记的裸 `SECTORS` 也能被 `setField` 写入（X-4），以及 Hexen 格式的 `THINGS` 被按 Doom 布局解释（X-3）。这些缺陷已修复，各有回归用例。CI 与 `REQUIRE_FREEDOOM`（D-8）已决定但延后，尚未实现 |
 | patch-engine | 先写 requirements、design、tasks，再在一次对话中让 Agent 按 tasks.md 依次实现，完成一项勾选一项 | `.kiro/specs/patch-engine/` 下的三份文档；core 的 `src/hash.ts`、`src/patch/`，adapter-wad 的 `record-source.ts`、`restore-channel.ts`；16 条属性测试和回归用例 | 开工前把 design.md 中的示例字段名 `floorTexture` 改成记录布局里的 `floorpic`。Property 3（`set` 幂等）的属性测试找到两个反例，design.md 的 Property 3 因此加了前提，详见下面"属性测试捕获的 Bug" |
 
+| workbench | 先写 requirements、design、tasks 并单独提交，再在同一次对话中按 tasks.md 实现，完成一项勾选一项 | `.kiro/specs/workbench/` 下的三份文档；`packages/web`；adapter-wad 的 `patch-export.ts`、`outline.ts`；engine-smoke 移到 cli | 写 design 时核对代码，发现 `adapter-wad/src/node/engine-smoke.ts` 导入了 `node:child_process`，于是先移到 cli（任务 1），并让 `imports.test.ts` 检查 core、adapter-wad 的 `src` 没有 Node 模块；为了让导出和 CLI 用同一套逻辑，把 `replayChanges` 从 `cli/src/ops.ts` 移进 adapter-wad（任务 2）。任务 9 的浏览器检查发现：切换地图后、新的规划结果回来之前，结论标题已经换成新地图名，数字却还是上一张地图的（MAP02 显示 300，实际 327），改为标题跟着规划结果走 |
+
 pin 重定位（`docs/design.md` 第 7 节）按用户要求没有写 Spec，直接在对话中实现。它改变了 patch-engine Spec 的 Property 3 和 Property 5，所以在 `.kiro/specs/patch-engine/design.md` 的这两条属性下注明了变化，没有改写原文。
 
 ## Hooks
