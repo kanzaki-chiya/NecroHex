@@ -92,9 +92,12 @@ function zoomTo(sel: Sel | null): void {
 watch(map, () => {
   vb.value = { ...full.value };
 });
+/** 与 extra.css 里窄屏顶栏的断点相同。 */
+const NARROW = "(max-width: 600px)";
+const narrow = () => typeof matchMedia === "function" && matchMedia(NARROW).matches;
 watch(
   () => state.zoom.n,
-  () => void nextTick(() => zoomTo(state.zoom.sel)),
+  () => void nextTick(() => zoomTo(state.zoom.fitOnNarrow && narrow() ? null : state.zoom.sel)),
 );
 
 let drag: { x: number; y: number; vb: typeof vb.value; moved: boolean } | null = null;

@@ -26,6 +26,8 @@ export const PLAN_DEBOUNCE_MS = 150;
 export interface ZoomRequest {
   readonly n: number;
   readonly sel: Sel | null;
+  /** 打开 WAD 后第一次规划发出的请求：窄屏上改为整图适配，宽屏仍缩放到选中的记录。 */
+  readonly fitOnNarrow?: boolean;
 }
 
 export function createStore(client: PlannerClient, baseUrl: string) {
@@ -54,10 +56,12 @@ export function createStore(client: PlannerClient, baseUrl: string) {
   let seq = 0;
   /** 预设刚载入：规划结果回来后按 Mockup 的规则选中并缩放。 */
   let selectAfterPlan = true;
+  /** 刚打开 WAD，下一次规划是这个文件的第一次规划。 */
+  let firstPlanAfterOpen = false;
 
   const edited = () => isEdited(patch.value, presets.value[state.preset]!.patch, state.off);
-  const zoomTo = (sel: Sel | null) => {
-    state.zoom = { n: state.zoom.n + 1, sel };
+  const zoomTo = (sel: Sel | null, fitOnNarrow = false) => {
+    state.zoom = { n: state.zoom.n + 1, sel, ...(fitOnNarrow ? { fitOnNarrow } : {}) };
   };
 
   async function runPlan(): Promise<void> {
@@ -71,7 +75,8 @@ export function createStore(client: PlannerClient, baseUrl: string) {
     if (selectAfterPlan) {
       selectAfterPlan = false;
       state.sel = initialSelection(res.plan);
-      zoomTo(state.sel);
+      zoomTo(state.sel, firstPlanAfterOpen);
+      firstPlanAfterOpen = false;
     }
     state.receipt = null;
     if (res.plan.ok && !edited()) {
@@ -124,6 +129,7 @@ export function createStore(client: PlannerClient, baseUrl: string) {
     state.after = true;
     if (scope && (await loadMap(scope))) {
       selectAfterPlan = true;
+      firstPlanAfterOpen = true;
       planNow();
       await refreshStatus();
     }
