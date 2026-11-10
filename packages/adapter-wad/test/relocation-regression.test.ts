@@ -5,13 +5,14 @@
  * 两组断言：
  * 1. 不依赖缓存：源扇区和错误目标的指纹直接写在这里（只是从两个发行版算出的数，不含地图数据），
  *    新相似度必须低于高置信度下限，所以无论地图里还有什么扇区，都不可能再选中这个目标；同时核对旧公式确实达到了下限。
- * 2. 有 fixtures/cache/freedoom-<版本>/freedoom2.wad 时：在真实地图上用补丁引擎解析，结果不是错误目标。缺文件时跳过。
+ * 2. 有 fixtures/cache/freedoom-<版本>/freedoom2.wad 时：在真实地图上用补丁引擎解析，结果不是错误目标。缺文件时跳过，REQUIRE_FREEDOOM=1 时失败。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { planPatch, RELOCATION_THRESHOLDS } from "@necrohex/core";
 import { describe, expect, it } from "vitest";
 import { createWadAdapter, FINGERPRINT_PARAMS, sectorFingerprintScore, wadAdapter, type FingerprintParams, type SectorFingerprint } from "../src/index.ts";
+import { haveFreedoom } from "./helpers.ts";
 
 /** 修复前的公式：没有 bbox 和面积，几何中心 0.4，半径 32。 */
 const OLD: FingerprintParams = {
@@ -110,7 +111,7 @@ describe("重定位回归：指纹对（不依赖缓存）", () => {
 });
 
 const cachePath = (v: string) => resolve(import.meta.dirname, `../fixtures/cache/freedoom-${v}/freedoom2.wad`);
-const haveCache = existsSync(cachePath("0.12.1")) && existsSync(cachePath("0.13.0"));
+const haveCache = haveFreedoom(cachePath("0.12.1"), cachePath("0.13.0"));
 const load = (() => {
   const loaded = new Map<string, Uint8Array>();
   return (v: string) => {

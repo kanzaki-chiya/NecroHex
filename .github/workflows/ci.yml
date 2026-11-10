@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # 依赖完整 Freedoom 的用例缺文件时失败，不静默跳过
+      REQUIRE_FREEDOOM: "1"
+      # 要下载的 Freedoom 发行版；校验和在 packages/adapter-wad/fixtures/freedoom.sha256
+      FREEDOOM_VERSIONS: "0.12.1 0.13.0"
+      FREEDOOM_CACHE: packages/adapter-wad/fixtures/cache
+      # web 构建直接用缓存里的 zip，不再下载一次（脚本仍会校验 SHA-256）
+      NECROHEX_FREEDOOM_ZIP: ${{ github.workspace }}/packages/adapter-wad/fixtures/cache/downloads/freedoom-0.13.0.zip
+    steps:
+      - uses: actions/checkout@v6
+
+      # 版本取自 package.json 的 packageManager
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Freedoom cache key
+        id: freedoom
+        run: |
+          key=freedoom
+          for v in $FREEDOOM_VERSIONS; do
+            h=$(awk -v f="downloads/freedoom-$v.zip" '$2 == f { print $1 }' packages/adapter-wad/fixtures/freedoom.sha256)
+            if [ -z "$h" ]; then echo "no checksum for freedoom-$v.zip"; exit 1; fi
+            key="$key-$v-$h"
+          done
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Freedoom downloads
+        id: freedoom-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.FREEDOOM_CACHE }}/downloads
+          key: ${{ steps.freedoom.outputs.key }}
+
+      - name: Download Freedoom
+        if: steps.freedoom-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.FREEDOOM_CACHE }}
+        run: |
+          mkdir -p downloads
+          for v in $FREEDOOM_VERSIONS; do
+            curl -fsSL --retry 3 -o "downloads/freedoom-$v.zip" "https://github.com/freedoom/freedoom/releases/download/v$v/freedoom-$v.zip"
+          done
+          grep ' downloads/' ../freedoom.sha256 | sha256sum -c -
+
+      # 只在下载并校验通过后保存，测试失败也保留缓存
+      - name: Save Freedoom downloads
+        if: steps.freedoom-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.FREEDOOM_CACHE }}/downloads
+          key: ${{ steps.freedoom.outputs.key }}
+
+      - name: Unpack and verify Freedoom
+        working-directory: ${{ env.FREEDOOM_CACHE }}
+        run: |
+          for v in $FREEDOOM_VERSIONS; do
+            unzip -o -q "downloads/freedoom-$v.zip" "freedoom-$v/freedoom1.wad" "freedoom-$v/freedoom2.wad"
+          done
+          cp freedoom-0.13.0/freedoom1.wad freedoom-0.13.0/freedoom2.wad .
+          sha256sum -c ../freedoom.sha256
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      # 没有安装 DSDA-Doom，引擎冒烟用例照常跳过
+      - name: Test
+        run: pnpm test

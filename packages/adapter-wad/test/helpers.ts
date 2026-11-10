@@ -1,6 +1,19 @@
+import { existsSync } from "node:fs";
 import type { Span } from "@necrohex/core";
 import { fieldByteLength, MAP_DATA_LUMPS, RECORD_LAYOUTS, WadFile, type FieldLayout } from "../src/index.ts";
 import type { FieldWrite } from "./arbitraries.ts";
+
+/**
+ * 依赖 fixtures/cache 下完整 Freedoom 发行版的用例用它决定是否运行：文件都在时返回 true，缺文件时返回 false（用例跳过）。
+ * 设置了 REQUIRE_FREEDOOM=1（CI 上）时缺文件直接抛错，测试失败而不是静默跳过。
+ */
+export function haveFreedoom(...paths: string[]): boolean {
+  const missing = paths.filter((p) => !existsSync(p));
+  if (missing.length > 0 && process.env["REQUIRE_FREEDOOM"] === "1") {
+    throw new Error(`REQUIRE_FREEDOOM=1 but these Freedoom files are missing:\n${missing.join("\n")}`);
+  }
+  return missing.length === 0;
+}
 
 /** 解析结果的结构摘要，用于比较 parse(serialize(A)) 与 A。 */
 export function summarize(wad: WadFile): unknown {

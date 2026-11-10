@@ -30,7 +30,7 @@
 | D-6：`ByteOverlay` 移出 `@necrohex/core` 公开入口，只经内部子路径提供（已实现，约定级隔离） | `ByteOverlay.write` 接收裸偏移和字节，公开导出会让上层包绕过 `setField` 的全部校验。它是补丁引擎要用的积木，不能删除。子路径和相对路径导入仍能绕过，所以靠测试断言公开入口不导出它来发现误用，不声称技术隔离 |
 | X-3 与 D-9：地图作用域包含 `BEHAVIOR`、`SCRIPTS` 并识别 UDMF，`MapScope.format` 区分 Doom、Hexen、UDMF，非 Doom 地图的记录访问一律拒绝；只识别，不解析（已实现） | Hexen 的 `THINGS` 是 20 字节一条，按 10 字节的 Doom 布局读写会落在错误偏移且不报错，违反“不猜测”。作用域漏掉扩展 Lump 会让将来的 PWAD 导出缺 Lump。识别靠名称启发式，不能覆盖所有来源的 WAD |
 | D-1：`PLAYPAL` 不属于 `wad-roundtrip`（后续可选） | 未解析的 Lump 本来就原样保留，字节保真不受影响。生成器没有一字节类型，大 `count` 字段会生成逐元素元组，需要先改生成器 |
-| D-8：使用 GitHub Actions，整包测试下载固定版本的 Freedoom 并校验 SHA-256 后缓存，`REQUIRE_FREEDOOM=1` 时缺文件失败而不是跳过（延后到 `wad-export` 完成之后，目前没有 CI 配置） | 缺 cache 时整包用例被 `skipIf` 跳过，测试仍显示通过，整包 I-1 可能在 CI 里从未运行。固定版本和校验和让结果可重复 |
+| D-8：使用 GitHub Actions，整包测试下载固定版本的 Freedoom 并校验 SHA-256 后缓存，`REQUIRE_FREEDOOM=1` 时缺文件失败而不是跳过（2026-11-10 已实现：`.github/workflows/ci.yml`，校验和在 `packages/adapter-wad/fixtures/freedoom.sha256`） | 缺 cache 时整包用例被 `skipIf` 跳过，测试仍显示通过，整包 I-1 可能在 CI 里从未运行。固定版本和校验和让结果可重复 |
 | 决定 7（X-4）：不属于任何地图作用域的记录 Lump 可读不可写，读取接口行为不变，`setField` 抛 `OUTSIDE_MAP_SCOPE`（已实现） | 读取没有副作用，按 Doom 布局读错最多得到一份无意义的预览；写入必须能证明目标属于一张已识别的 Doom 地图，记录大小和字段偏移才有依据。作用域识别是名称启发式，误判的方向是拒绝写入，而不是错误写入 |
 
 ## 2026-11-09：wad-export 的实现选择

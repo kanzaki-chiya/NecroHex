@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildWad, MAP_DATA_LUMPS, NO_INDEX, WadFile, WadRecordError } from "../src/index.ts";
-import { changedIndices, equalBytes, insideAny, legacyMaps, mapsWithoutFormat, withFilepos } from "./helpers.ts";
+import { changedIndices, equalBytes, haveFreedoom, insideAny, legacyMaps, mapsWithoutFormat, withFilepos } from "./helpers.ts";
 
 const fixtures = resolve(import.meta.dirname, "../fixtures");
 const subset = resolve(fixtures, "freedoom/freedoom2-map01-02.wad");
@@ -125,8 +125,7 @@ describe("Freedoom 夹具（PWAD 子集）", () => {
 });
 
 describe.each(cached)("完整 Freedoom IWAD %s", (path) => {
-  const present = existsSync(path);
-  const run = it.skipIf(!present);
+  const run = it.skipIf(!haveFreedoom(path));
 
   run("I-1 逐字节往返", () => {
     const bytes = load(path);

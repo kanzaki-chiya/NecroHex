@@ -8,7 +8,9 @@ Rebuild it from a full release:
 node scripts/make-freedoom-fixture.ts fixtures/cache/freedoom2.wad fixtures/freedoom/freedoom2-map01-02.wad
 ```
 
-`cache/` is git-ignored. Put full `freedoom1.wad` and `freedoom2.wad` there to run the extra whole-file round-trip tests; they are skipped when the files are absent. Never put commercial game data in this directory.
+`cache/` is git-ignored. Put full `freedoom1.wad` and `freedoom2.wad` there to run the extra whole-file round-trip tests; they are skipped when the files are absent. Set `REQUIRE_FREEDOOM=1` to make missing files a test failure instead, as CI does. Never put commercial game data in this directory.
+
+`freedoom.sha256` lists the SHA-256 of the release zips and of the WADs unpacked from them, with paths relative to `cache/`. CI downloads `freedoom-0.12.1.zip` and `freedoom-0.13.0.zip` into `cache/downloads/`, unpacks them into this layout and checks every file with `sha256sum -c ../freedoom.sha256` from `cache/`. The 0.13.0 zip hash matches the release's `freedoom-0.13.0-CHECKSUM`; the 0.12.1 release has no checksum list, so its hash is the one of the downloaded file.
 
 ## Cross-version relocation report
 
