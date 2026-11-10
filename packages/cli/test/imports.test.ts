@@ -1,5 +1,5 @@
 /**
- * cli 和 mcp-server 只能用 @necrohex/core、@necrohex/adapter-wad 的公开导出：
+ * cli、mcp-server 和 web（只扫描 src；它的脚本和测试会读取仓库里的补丁和夹具）只能用 @necrohex/core、@necrohex/adapter-wad 的公开导出：
  * 不能导入 @necrohex/core/internal（ByteOverlay、写回通道），不能深入其他包的 src，不能用相对路径跨出自己的包。
  * 另外，core 和 adapter-wad 的 src 要能在浏览器里运行，不能导入 Node 模块。
  */
@@ -8,7 +8,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const PACKAGES = resolve(import.meta.dirname, "../..");
-const CHECKED = ["cli", "mcp-server"];
+const CHECKED = ["cli", "mcp-server", "web/src"];
 /** 允许的 @necrohex/* 说明符，都是对应 package.json exports 里列出的入口。 */
 const ALLOWED = new Set(["@necrohex/core", "@necrohex/adapter-wad", "@necrohex/cli/ops", "@necrohex/cli/errors", "@necrohex/cli/workspace", "@necrohex/cli/cli"]);
 /** 可在浏览器里运行的包。 */
@@ -32,9 +32,10 @@ function specifiers(source: string): string[] {
 describe("cli 和 mcp-server 的导入", () => {
   const all = CHECKED.flatMap((p) => files(join(PACKAGES, p)).map((f) => ({ pkg: p, file: f })));
 
-  it("扫描到了两个包的源码", () => {
+  it("扫描到了三个包的源码", () => {
     expect(all.some((f) => f.pkg === "cli" && f.file.endsWith(`${sep}ops.ts`))).toBe(true);
     expect(all.some((f) => f.pkg === "mcp-server" && f.file.endsWith(`${sep}server.ts`))).toBe(true);
+    expect(all.some((f) => f.pkg === "web/src" && f.file.endsWith(`${sep}session.ts`))).toBe(true);
   });
 
   it("没有 @necrohex/core/internal、没有深入其他包、没有跨包相对路径", () => {

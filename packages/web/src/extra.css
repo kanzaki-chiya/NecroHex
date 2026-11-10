@@ -1,0 +1,19 @@
+/* Rules for controls the mockup does not have. Only the mockup's :root variables and fonts are used. */
+#app { height: 100%; }
+.sr-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.specimen a { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.specimen a:hover { color: var(--bone); }
+.mapsel { margin: -4px 0 -4px auto; background: var(--table); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; height: 22px; font: 12px/1 var(--mono); color: var(--bone); letter-spacing: 0; text-transform: none; max-width: 50%; }
+.ctl select { background: var(--table); border: 1px solid var(--rule); border-radius: 3px; font: 12px var(--mono); padding: 2px 4px; min-width: 0; flex: 1; }
+.banner { margin: 0 14px; padding: 8px 12px; background: var(--tray-2); border-left: 3px solid var(--review); font-size: 12px; overflow-wrap: anywhere; }
+.banner.bad { border-left-color: var(--blocked); }
+.mapmsg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--bone-dim); font-size: 13px; padding: 24px; text-align: center; pointer-events: none; }
+dialog.export { background: var(--tray); color: var(--bone); border: 1px solid var(--rule); border-radius: 4px; padding: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog.export::backdrop { background: rgba(13, 16, 18, .7); }
+dialog.export h2 { margin: 0; padding: 10px 14px; font: 600 13px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--bone-dim); border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 8px; min-height: 40px; }
+dialog.export h2 .grow { flex: 1; }
+dialog.export .body { padding: 12px 14px; display: grid; gap: 10px; }
+dialog.export input[type="text"] { background: var(--table); border: 1px solid var(--rule); border-radius: 3px; padding: 4px 6px; font: 12px var(--mono); width: 100%; min-width: 0; }
+dialog.export ul { margin: 0; padding-left: 18px; font-size: 12px; color: var(--bone-dim); }
+dialog.export .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+dialog.export .hash { font: 11px var(--mono); color: var(--bone-dim); overflow-wrap: anywhere; }
