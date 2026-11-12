@@ -4,8 +4,8 @@
 
 ## 使用的产品
 
-- Kiro 版本：
-- 用过的形态（IDE、CLI、Web、Crew）及差异：
+- Kiro 版本：Kiro IDE 1.4.62（commit `8afe855`，基于 VS Code 1.131.0），2026-11-12 用 `kiro --version` 查得
+- 用过的形态（IDE、CLI、Web、Crew）及差异：只用了 Kiro IDE，没有用 CLI、Web 和 Crew
 
 ## 起步说明
 
