@@ -9,7 +9,7 @@
 
 ## 起步说明
 
-`.kiro/steering/` 的初始版本和 `docs/` 下的设计文档是在开发开始前，用 Claude Code 根据原始设计整理的。后续改动和全部功能开发的来源，按下面的记录填写。
+`.kiro/steering/` 的初始版本和 `docs/` 下的设计文档是在开发开始前，用 Claude Code 根据原始设计整理的。工作台的视觉和交互参考 `docs/workbench-mockup/index.html`，这个示例同样是在 Kiro 之外用 Claude Code 做的；`packages/web` 的实现是在 Kiro 里按 workbench Spec 完成的，样式从示例复制。后续改动和全部功能开发的来源，按下面的记录填写。
 
 ## Specs
 
