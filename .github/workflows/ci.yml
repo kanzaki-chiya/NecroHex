@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # 依赖完整 Freedoom 的用例缺文件时失败，不静默跳过
       REQUIRE_FREEDOOM: "1"
